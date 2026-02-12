@@ -17,7 +17,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers import config_validation as cv, entity_registry as er
+from homeassistant.helpers import config_validation as cv
 from homeassistant.util import dt as dt_util, slugify
 
 from .client import get_datetime_from_time
@@ -100,10 +100,6 @@ COMMON_FIELDS_TIMER: dict[vol.Required | vol.Optional | vol.Exclusive, Any] = {
 
 async def __async_extract_entry_coordinator(call: ServiceCall) -> BabyBuddyCoordinator:
     """Extract coordinator from a service call."""
-    hass: HomeAssistant = call.hass
-    entry: BabyBuddyConfigEntry = hass.config_entries.async_loaded_entries(DOMAIN)[0]
-    entry = er.async_get(hass).async_get(call.data.get(ATTR_CHILD))
-
     entry = None
     for entry in call.hass.config_entries.async_loaded_entries(DOMAIN):
         if entry.state is not ConfigEntryState.LOADED:
@@ -116,8 +112,7 @@ async def __async_extract_entry_coordinator(call: ServiceCall) -> BabyBuddyCoord
             translation_domain=DOMAIN,
             translation_key="entry_not_loaded",
         )
-    coordinator = entry.runtime_data.coordinator
-    return coordinator
+    return entry.runtime_data.coordinator
 
 
 async def __setup_service_data(
@@ -200,14 +195,16 @@ async def __setup_service_data(
 
 
 async def __set_common_fields(
-    call: ServiceCall, data: dict[str, Any]
+    call: ServiceCall, data: dict[str, Any], coordinator: BabyBuddyCoordinator
 ) -> dict[str, Any]:
     """Set data common fields."""
 
     if data.get(ATTR_TIMER):
-        if not self.is_on:
+        child_id = data[ATTR_CHILD]
+        timer_data = coordinator.data[1].get(child_id, {}).get(ATTR_TIMERS, {})
+        if not timer_data:
             raise ValidationError("Timer not found or stopped. Timer must be active.")
-        data[ATTR_TIMER] = self.extra_state_attributes[ATTR_ID]
+        data[ATTR_TIMER] = timer_data[ATTR_ID]
     else:
         data[ATTR_START] = get_datetime_from_time(
             call.data.get(ATTR_START) or dt_util.now()
@@ -410,7 +407,7 @@ async def async_add_feeding(call: ServiceCall) -> None:
     data = await __setup_service_data(call, coordinator)
 
     try:
-        data = await __set_common_fields(call, data)
+        data = await __set_common_fields(call, data, coordinator)
     except ValidationError as error:
         LOGGER.error(error)
         return
@@ -437,7 +434,7 @@ async def async_add_pumping(call: ServiceCall) -> None:
     data = await __setup_service_data(call, coordinator)
 
     try:
-        data = await __set_common_fields(call, data)
+        data = await __set_common_fields(call, data, coordinator)
     except ValidationError as error:
         LOGGER.error(error)
         return
@@ -457,7 +454,7 @@ async def async_add_sleep(call: ServiceCall) -> None:
     data = await __setup_service_data(call, coordinator)
 
     try:
-        data = await __set_common_fields(call, data)
+        data = await __set_common_fields(call, data, coordinator)
     except ValidationError as error:
         LOGGER.error(error)
         return
@@ -477,7 +474,7 @@ async def async_add_tummy_time(call: ServiceCall) -> None:
     data = await __setup_service_data(call, coordinator)
 
     try:
-        data = await __set_common_fields(call, data)
+        data = await __set_common_fields(call, data, coordinator)
     except ValidationError as error:
         LOGGER.error(error)
         return

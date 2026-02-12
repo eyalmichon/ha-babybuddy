@@ -9,7 +9,6 @@ from http import HTTPStatus
 from typing import Any
 
 from aiohttp.client_exceptions import ClientError, ClientResponseError
-import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
@@ -22,15 +21,12 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
-from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import homeassistant.helpers.device_registry as dr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-import homeassistant.util.dt as dt_util
 
 from .client import BabyBuddyClient
 from .const import (
-    ATTR_BIRTH_DATE,
     ATTR_CHILDREN,
     ATTR_COUNT,
     ATTR_FIRST_NAME,
@@ -42,14 +38,6 @@ from .const import (
     SENSOR_TYPES,
 )
 from .errors import AuthorizationError, ConnectError
-
-SERVICE_ADD_CHILD_SCHEMA = vol.Schema(
-    {
-        vol.Required(ATTR_BIRTH_DATE, default=dt_util.now().date()): cv.date,
-        vol.Required(ATTR_FIRST_NAME): cv.string,
-        vol.Required(ATTR_LAST_NAME): cv.string,
-    }
-)
 
 type BabyBuddyConfigEntry = ConfigEntry[BabyBuddyData]
 
@@ -170,7 +158,7 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
 
 async def options_updated_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle options update."""
-    hass.data[DOMAIN][entry.entry_id].update_interval = timedelta(
+    entry.runtime_data.coordinator.update_interval = timedelta(
         seconds=entry.options[CONF_SCAN_INTERVAL]
     )
-    await hass.data[DOMAIN][entry.entry_id].async_request_refresh()
+    await entry.runtime_data.coordinator.async_request_refresh()
