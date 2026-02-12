@@ -302,6 +302,72 @@ add_height:
         text:
           multiple: true
 
+add_medication:
+  name: Add medication
+  description: Adds a medication entry
+  fields:
+    child:
+      name: Child
+      description: Baby Buddy child entity
+      example: "sensor.baby_lorem_ipsum"
+      required: true
+      selector:
+        entity:
+          integration: babybuddy
+          domain: sensor
+          device_class: babybuddy_child
+    name:
+      name: Medication name
+      description: Name of the medication
+      example: "Vitamin D"
+      required: true
+      selector:
+        text:
+    amount:
+      name: Amount
+      description: Medication amount
+      example: 1.0
+      selector:
+        number:
+          min: 0.1
+          max: 500.0
+          step: 0.1
+          mode: box
+    amount_unit:
+      name: Amount unit
+      description: Unit for the medication amount
+      example: "ml"
+      selector:
+        select:
+          options:
+            - ml
+            - oz
+            - mg
+            - g
+            - drops
+            - tsp
+            - tbsp
+    time:
+      name: Medication time
+      description: Time the medication was given
+      example: "15:00:00"
+      selector:
+        time:
+    notes:
+      name: Notes
+      description: Medication notes
+      example: Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+      selector:
+        text:
+          multiline: true
+    tags:
+      name: Tag(s)
+      description: Tag(s) to apply
+      example: '["Tag 1", "Tag 2", "Tag 3"]'
+      selector:
+        text:
+          multiple: true
+
 add_note:
   name: Add note
   description: Adds a note entry
@@ -583,6 +649,57 @@ delete_last_entry:
         entity:
           integration: babybuddy
           domain: sensor
+
+give_medication:
+  name: Give scheduled medication
+  description: Marks a scheduled medication as given
+  fields:
+    child:
+      name: Child
+      description: Baby Buddy child entity
+      example: "sensor.baby_lorem_ipsum"
+      required: true
+      selector:
+        entity:
+          integration: babybuddy
+          domain: sensor
+          device_class: babybuddy_child
+    schedule_id:
+      name: Schedule ID
+      description: Baby Buddy medication schedule ID
+      example: 1
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    name:
+      name: Medication name
+      description: Optional medication name override
+      selector:
+        text:
+    amount:
+      name: Amount
+      description: Medication amount
+      selector:
+        number:
+          min: 0.1
+          max: 500.0
+          step: 0.1
+          mode: box
+    amount_unit:
+      name: Amount unit
+      description: Unit for the medication amount
+      selector:
+        select:
+          options:
+            - ml
+            - oz
+            - mg
+            - g
+            - drops
+            - tsp
+            - tbsp
 
 start_timer:
   name: Start timer

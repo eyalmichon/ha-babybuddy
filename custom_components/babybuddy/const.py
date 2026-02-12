@@ -47,6 +47,7 @@ ATTR_HEAD_CIRCUMFERENCE_DASH: Final[str] = "head-circumference"
 ATTR_HEAD_CIRCUMFERENCE_UNDERSCORE: Final[str] = "head_circumference"
 ATTR_HEIGHT: Final[str] = "height"
 ATTR_LAST_NAME: Final[str] = "last_name"
+ATTR_MEDICATION: Final[str] = "medications"
 ATTR_METHOD: Final[str] = "method"
 ATTR_MILESTONE: Final[str] = "milestone"
 ATTR_NAP: Final[str] = "nap"
@@ -72,6 +73,7 @@ ATTR_ICON_BABY: Final[str] = "mdi:baby"
 ATTR_ICON_CHILD_SENSOR: Final[str] = "mdi:baby-face-outline"
 ATTR_ICON_HEAD: Final[str] = "mdi:head-outline"
 ATTR_ICON_HEIGHT: Final[str] = "mdi:human-male-height"
+ATTR_ICON_MEDICATION: Final[str] = "mdi:pill"
 ATTR_ICON_MOTHER_NURSE: Final[str] = "mdi:mother-nurse"
 ATTR_ICON_NOTE: Final[str] = "mdi:note-multiple-outline"
 ATTR_ICON_PAPER_ROLL: Final[str] = "mdi:paper-roll-outline"
@@ -92,7 +94,9 @@ ATTR_ACTION_ADD_SLEEP: Final[str] = "add_sleep"
 ATTR_ACTION_ADD_TEMPERATURE: Final[str] = "add_temperature"
 ATTR_ACTION_ADD_TUMMY_TIME: Final[str] = "add_tummy_time"
 ATTR_ACTION_ADD_WEIGHT: Final[str] = "add_weight"
+ATTR_ACTION_ADD_MEDICATION: Final[str] = "add_medication"
 ATTR_ACTION_DELETE_LAST_ENTRY: Final[str] = "delete_last_entry"
+ATTR_ACTION_GIVE_MEDICATION: Final[str] = "give_medication"
 
 DEFAULT_DIAPER_TYPE: Final = ATTR_WET
 DIAPER_COLOR: Final[str] = "diaper_color"
@@ -152,6 +156,12 @@ SENSOR_TYPES: tuple[BabyBuddyEntityDescription, ...] = (
         key=ATTR_HEIGHT,
         state_class=SensorStateClass.MEASUREMENT,
         state_key=ATTR_HEIGHT,
+    ),
+    BabyBuddyEntityDescription(
+        device_class=SensorDeviceClass.TIMESTAMP,
+        icon=ATTR_ICON_MEDICATION,
+        key=ATTR_MEDICATION,
+        state_key=ATTR_TIME,
     ),
     BabyBuddyEntityDescription(
         device_class=SensorDeviceClass.TIMESTAMP,

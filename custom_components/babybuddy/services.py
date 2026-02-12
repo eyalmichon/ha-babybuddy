@@ -28,6 +28,7 @@ from .const import (
     ATTR_ACTION_ADD_FEEDING,
     ATTR_ACTION_ADD_HEAD_CIRCUMFERENCE,
     ATTR_ACTION_ADD_HEIGHT,
+    ATTR_ACTION_ADD_MEDICATION,
     ATTR_ACTION_ADD_NOTE,
     ATTR_ACTION_ADD_PUMPING,
     ATTR_ACTION_ADD_SLEEP,
@@ -35,6 +36,7 @@ from .const import (
     ATTR_ACTION_ADD_TUMMY_TIME,
     ATTR_ACTION_ADD_WEIGHT,
     ATTR_ACTION_DELETE_LAST_ENTRY,
+    ATTR_ACTION_GIVE_MEDICATION,
     ATTR_AMOUNT,
     ATTR_BIRTH_DATE,
     ATTR_BMI,
@@ -49,6 +51,7 @@ from .const import (
     ATTR_HEAD_CIRCUMFERENCE_UNDERSCORE,
     ATTR_HEIGHT,
     ATTR_LAST_NAME,
+    ATTR_MEDICATION,
     ATTR_METHOD,
     ATTR_MILESTONE,
     ATTR_NAP,
@@ -371,6 +374,45 @@ async def async_add_weight(call: ServiceCall) -> None:
     await coordinator.async_request_refresh()
 
 
+async def async_add_medication(call: ServiceCall) -> None:
+    """Add a medication entry."""
+    coordinator = await __async_extract_entry_coordinator(call)
+    data = await __setup_service_data(call, coordinator)
+
+    if call.data.get(ATTR_TIME):
+        try:
+            date_time = get_datetime_from_time(call.data[ATTR_TIME])
+            data[ATTR_TIME] = date_time
+        except ValidationError as error:
+            LOGGER.error(error)
+            return
+    if call.data.get(ATTR_NOTES):
+        data[ATTR_NOTES] = call.data.get(ATTR_NOTES)
+    if call.data.get(ATTR_TAGS):
+        data[ATTR_TAGS] = call.data.get(ATTR_TAGS)
+
+    date_time_now = get_datetime_from_time(dt_util.now())
+    await coordinator.client.async_post(ATTR_MEDICATION, data, date_time_now)
+    await coordinator.async_request_refresh()
+
+
+async def async_give_medication(call: ServiceCall) -> None:
+    """Give a scheduled medication (uses medication schedule ID)."""
+    coordinator = await __async_extract_entry_coordinator(call)
+    data = await __setup_service_data(call, coordinator)
+
+    data["medication_schedule"] = call.data["schedule_id"]
+    if call.data.get(ATTR_NAME):
+        data[ATTR_NAME] = call.data[ATTR_NAME]
+    if call.data.get(ATTR_AMOUNT):
+        data[ATTR_AMOUNT] = call.data[ATTR_AMOUNT]
+    if call.data.get("amount_unit"):
+        data["amount_unit"] = call.data["amount_unit"]
+
+    await coordinator.client.async_post(ATTR_MEDICATION, data)
+    await coordinator.async_request_refresh()
+
+
 async def async_delete_last_entry(call: ServiceCall) -> None:
     """Delete last data entry."""
     coordinator = await __async_extract_entry_coordinator(call)
@@ -580,6 +622,38 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 **COMMON_FIELDS,
                 vol.Required(ATTR_WEIGHT): cv.positive_float,
                 vol.Optional(ATTR_DATE): cv.date,
+            }
+        ),
+    )
+    hass.services.async_register(
+        DOMAIN,
+        ATTR_ACTION_ADD_MEDICATION,
+        async_add_medication,
+        vol.Schema(
+            {
+                **COMMON_FIELDS,
+                vol.Required(ATTR_NAME): cv.string,
+                vol.Optional(ATTR_AMOUNT): cv.positive_float,
+                vol.Optional("amount_unit"): vol.In(
+                    ["ml", "oz", "mg", "g", "drops", "tsp", "tbsp"]
+                ),
+                vol.Optional(ATTR_TIME): vol.Any(cv.datetime, cv.time),
+            }
+        ),
+    )
+    hass.services.async_register(
+        DOMAIN,
+        ATTR_ACTION_GIVE_MEDICATION,
+        async_give_medication,
+        vol.Schema(
+            {
+                vol.Required(ATTR_CHILD): cv.entity_id,
+                vol.Required("schedule_id"): cv.positive_int,
+                vol.Optional(ATTR_NAME): cv.string,
+                vol.Optional(ATTR_AMOUNT): cv.positive_float,
+                vol.Optional("amount_unit"): vol.In(
+                    ["ml", "oz", "mg", "g", "drops", "tsp", "tbsp"]
+                ),
             }
         ),
     )
