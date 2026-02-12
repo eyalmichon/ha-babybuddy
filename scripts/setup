@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+
+set -e
+
+cd "$(dirname "$0")/.."
+
+echo "Installing Python requirements..."
+sudo uv pip install --system ".[dev]"
+
+echo "Setup complete!"

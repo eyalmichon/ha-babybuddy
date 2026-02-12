@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+
+set -e
+
+cd "$(dirname "$0")/.."
+
+# Create HA config dir if not present
+if [[ ! -d "${PWD}/.dev/ha" ]]; then
+    mkdir -p "${PWD}/.dev/ha"
+    echo "Creating initial Home Assistant config..."
+    hass --config "${PWD}/.dev/ha" --script ensure_config
+fi
+
+# Set the path to custom_components
+# This lets us have the structure we want <root>/custom_components/babybuddy
+# while at the same time have Home Assistant configuration inside <root>/.dev/ha
+# without resorting to symlinks.
+export PYTHONPATH="${PYTHONPATH}:${PWD}/custom_components"
+
+echo "Starting Home Assistant..."
+echo "Access at: http://localhost:8123"
+echo ""
+
+# Start Home Assistant (pass --debug to enable verbose logging)
+if [[ "${DEBUG}" == "1" || "${1}" == "--debug" ]]; then
+    echo "Debug mode enabled."
+    hass --config "${PWD}/.dev/ha" --debug
+else
+    hass --config "${PWD}/.dev/ha"
+fi
