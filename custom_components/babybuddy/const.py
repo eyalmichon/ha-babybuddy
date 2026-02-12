@@ -250,4 +250,38 @@ SELECTOR_TYPES: tuple[BabyBuddySelectDescription, ...] = (
     ),
 )
 
+MQTT_TOPIC_KEYS: Final = [
+    "feeding",
+    "diaper_change",
+    "sleep",
+    "pumping",
+    "tummy_time",
+    "temperature",
+    "weight",
+    "height",
+    "head_circumference",
+    "bmi",
+    "note",
+    "medication",
+    "timer",
+]
+
+MQTT_TOPIC_TO_DATA_KEY: Final[dict[str, str]] = {
+    "feeding": "feedings",
+    "diaper_change": "changes",
+    "sleep": "sleep",
+    "pumping": "pumping",
+    "tummy_time": "tummy-times",
+    "temperature": "temperature",
+    "weight": "weight",
+    "height": "height",
+    "head_circumference": "head-circumference",
+    "bmi": "bmi",
+    "note": "notes",
+    "medication": "medications",
+    "timer": "timers",
+}
+
+MQTT_FALLBACK_SCAN_INTERVAL: Final[int] = 300
+
 PLATFORMS: Final = ["binary_sensor", "sensor", "select", "switch"]

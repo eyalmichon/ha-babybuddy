@@ -36,6 +36,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: BabyBuddyConfigEntry) ->
     # coordinator.async_refresh() instead
 
     await coordinator.async_config_entry_first_refresh()
+
+    # Set up MQTT subscriptions after first data fetch (child slugs needed)
+    if entry.options.get("mqtt_enabled", False):
+        await coordinator._setup_mqtt_subscriptions()
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True
@@ -43,6 +48,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: BabyBuddyConfigEntry) ->
 
 async def async_unload_entry(hass: HomeAssistant, entry: BabyBuddyConfigEntry) -> bool:
     """Unload babybuddy config entry."""
+    coordinator = entry.runtime_data.coordinator
+
+    # Clean up MQTT subscriptions
+    for unsub in coordinator._mqtt_unsubscribes:
+        unsub()
+    coordinator._mqtt_unsubscribes.clear()
+
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from asyncio import TimeoutError as AsyncIOTimeoutError
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
 from http import HTTPStatus
@@ -32,9 +34,16 @@ from .const import (
     ATTR_FIRST_NAME,
     ATTR_LAST_NAME,
     ATTR_RESULTS,
+    ATTR_SLUG,
+    CONF_MQTT_ENABLED,
+    CONF_MQTT_TOPIC_PREFIX,
+    DEFAULT_MQTT_TOPIC_PREFIX,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     LOGGER,
+    MQTT_FALLBACK_SCAN_INTERVAL,
+    MQTT_TOPIC_KEYS,
+    MQTT_TOPIC_TO_DATA_KEY,
     SENSOR_TYPES,
 )
 from .errors import AuthorizationError, ConnectError
@@ -74,6 +83,7 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
         )
         self.device_registry: dr.DeviceRegistry = dr.async_get(hass)
         self.child_ids: list[str] = []
+        self._mqtt_unsubscribes: list[Callable] = []
 
     async def _async_setup(self) -> None:
         """Set up the coordinator.
@@ -97,6 +107,131 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
                 self.device_registry, self.config_entry.entry_id
             )
         ]
+
+    @property
+    def _slug_to_child_id(self) -> dict[str, int]:
+        """Build a slug -> child_id mapping from current data."""
+        if not self.data or not self.data[0]:
+            return {}
+        return {child[ATTR_SLUG]: child[ATTR_ID] for child in self.data[0]}
+
+    async def _setup_mqtt_subscriptions(self) -> None:
+        """Subscribe to Baby Buddy MQTT state topics."""
+        # Check if MQTT integration is available
+        if not self.hass.config_entries.async_loaded_entries("mqtt"):
+            LOGGER.warning(
+                "MQTT enabled in Baby Buddy options but MQTT integration "
+                "is not set up. Falling back to REST polling only."
+            )
+            return
+
+        from homeassistant.components.mqtt import (
+            async_subscribe,
+            async_wait_for_mqtt_client,
+        )
+
+        # Wait for MQTT client to be ready (per HA docs)
+        if not await async_wait_for_mqtt_client(self.hass):
+            LOGGER.warning(
+                "MQTT client not available, falling back to REST polling."
+            )
+            return
+
+        prefix = self.config_entry.options.get(
+            CONF_MQTT_TOPIC_PREFIX, DEFAULT_MQTT_TOPIC_PREFIX
+        )
+
+        # Subscribe after first REST poll so child slugs are available
+        for child in self.data[0]:
+            child_slug = child[ATTR_SLUG]
+
+            # Subscribe to each data type topic
+            for topic_key in MQTT_TOPIC_KEYS:
+                topic = f"{prefix}/{child_slug}/{topic_key}/state"
+                unsub = await async_subscribe(
+                    self.hass,
+                    topic,
+                    self._handle_mqtt_message,
+                    qos=1,
+                )
+                self._mqtt_unsubscribes.append(unsub)
+
+            # Subscribe to stats topic
+            stats_topic = f"{prefix}/{child_slug}/stats/state"
+            unsub = await async_subscribe(
+                self.hass,
+                stats_topic,
+                self._handle_stats_message,
+                qos=1,
+            )
+            self._mqtt_unsubscribes.append(unsub)
+
+        # Increase polling interval as MQTT provides real-time updates
+        self.update_interval = timedelta(seconds=MQTT_FALLBACK_SCAN_INTERVAL)
+
+        LOGGER.info(
+            "Subscribed to Baby Buddy MQTT topics under prefix '%s'", prefix
+        )
+
+    def _handle_mqtt_message(self, msg) -> None:
+        """Handle incoming MQTT state message."""
+        # Parse topic: {prefix}/{child_slug}/{data_type}/state
+        parts = msg.topic.split("/")
+        if len(parts) < 4:
+            LOGGER.warning("Unexpected MQTT topic format: %s", msg.topic)
+            return
+
+        child_slug = parts[1]
+        data_type = parts[2]
+
+        try:
+            payload = json.loads(msg.payload)
+        except (json.JSONDecodeError, TypeError):
+            LOGGER.warning("Invalid MQTT payload on topic %s", msg.topic)
+            return
+
+        # Map MQTT data_type to coordinator data key
+        coordinator_key = MQTT_TOPIC_TO_DATA_KEY.get(data_type)
+        if not coordinator_key:
+            LOGGER.debug("Unknown MQTT data type: %s", data_type)
+            return
+
+        # Find child ID from slug
+        child_id = self._slug_to_child_id.get(child_slug)
+        if child_id is None:
+            LOGGER.debug(
+                "MQTT message for unknown child slug: %s", child_slug
+            )
+            return
+
+        # Update coordinator data in-place and notify entities
+        children_list, child_data = self.data
+        if child_id in child_data:
+            child_data[child_id][coordinator_key] = payload
+            self.async_set_updated_data((children_list, child_data))
+
+    def _handle_stats_message(self, msg) -> None:
+        """Handle incoming MQTT stats message."""
+        parts = msg.topic.split("/")
+        if len(parts) < 4:
+            return
+
+        child_slug = parts[1]
+
+        try:
+            payload = json.loads(msg.payload)
+        except (json.JSONDecodeError, TypeError):
+            LOGGER.warning("Invalid MQTT stats payload on topic %s", msg.topic)
+            return
+
+        child_id = self._slug_to_child_id.get(child_slug)
+        if child_id is None:
+            return
+
+        children_list, child_data = self.data
+        if child_id in child_data:
+            child_data[child_id]["stats"] = payload
+            self.async_set_updated_data((children_list, child_data))
 
     async def _async_remove_deleted_children(self) -> None:
         """Remove child device if child is removed from babybuddy."""
