@@ -26,9 +26,12 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .client import BabyBuddyClient
 from .const import (
     CONF_FEEDING_UNIT,
+    CONF_MQTT_ENABLED,
+    CONF_MQTT_TOPIC_PREFIX,
     CONF_WEIGHT_UNIT,
     CONFIG_FLOW_MINOR_VERSION,
     CONFIG_FLOW_VERSION,
+    DEFAULT_MQTT_TOPIC_PREFIX,
     DEFAULT_NAME,
     DEFAULT_PATH,
     DEFAULT_PORT,
@@ -184,6 +187,12 @@ class BabyBuddyOptionsFlowHandler(OptionsFlowWithReload):
                 vol.Optional(
                     CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL
                 ): cv.positive_int,
+                vol.Optional(
+                    CONF_MQTT_ENABLED, default=False
+                ): cv.boolean,
+                vol.Optional(
+                    CONF_MQTT_TOPIC_PREFIX, default=DEFAULT_MQTT_TOPIC_PREFIX
+                ): cv.string,
             }
         )
 

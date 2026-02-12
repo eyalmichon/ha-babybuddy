@@ -2,42 +2,53 @@
   "config": {
     "step": {
       "user": {
-        "title": "Set up Baby Buddy",
-        "description": "The host entry must be in full URL format without sub path, e.g., https://192.168.1.100",
+        "title": "Connect to Baby Buddy",
         "data": {
           "host": "Host",
           "port": "Port",
-          "path": "Path",
-          "api_key": "API Key"
+          "path": "URL path prefix",
+          "api_key": "API key"
         }
       },
       "reauth_confirm": {
-        "description": "The stored api key is no longer valid.",
-        "title": "Reauthenticate Integration",
+        "title": "Re-authenticate Baby Buddy",
         "data": {
-          "api_key": "API Key"
+          "api_key": "API key"
         }
       }
     },
-    "abort": {
-      "reauth_successful": "Re-authentication was successful",
-      "already_configured": "Device is already configured"
-    },
     "error": {
-      "cannot_connect": "Failed to connect",
-      "invalid_auth": "Invalid authentication"
+      "cannot_connect": "Failed to connect to Baby Buddy",
+      "invalid_auth": "Invalid API key"
+    },
+    "abort": {
+      "already_configured": "This Baby Buddy instance is already configured",
+      "reauth_successful": "Re-authentication was successful"
     }
   },
   "options": {
     "step": {
       "init": {
+        "title": "Baby Buddy Options",
         "data": {
-          "scan_interval": "Update interval (seconds)",
           "temperature": "Temperature unit",
           "weight": "Weight unit",
-          "feedings": "Feeding amount unit"
+          "feedings": "Feeding volume unit",
+          "scan_interval": "Polling interval (seconds)",
+          "mqtt_enabled": "Enable MQTT real-time updates",
+          "mqtt_topic_prefix": "MQTT topic prefix"
+        },
+        "data_description": {
+          "mqtt_enabled": "Subscribe to Baby Buddy MQTT topics for real-time sensor updates. Requires MQTT to be configured in both Home Assistant and Baby Buddy.",
+          "mqtt_topic_prefix": "The MQTT topic prefix configured in Baby Buddy (e.g. 'babybuddy' subscribes to 'babybuddy/#').",
+          "scan_interval": "How often to poll the Baby Buddy API (seconds). When MQTT is enabled, this acts as a fallback interval."
         }
       }
+    }
+  },
+  "exceptions": {
+    "entry_not_loaded": {
+      "message": "The Baby Buddy integration is not loaded. Please check your configuration."
     }
   }
 }

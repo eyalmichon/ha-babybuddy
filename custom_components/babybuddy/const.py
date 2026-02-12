@@ -19,12 +19,15 @@ LOGGER = logging.getLogger(__package__)
 DOMAIN: Final[str] = "babybuddy"
 
 CONF_FEEDING_UNIT: Final[str] = "feedings"
+CONF_MQTT_ENABLED: Final[str] = "mqtt_enabled"
+CONF_MQTT_TOPIC_PREFIX: Final[str] = "mqtt_topic_prefix"
 CONF_WEIGHT_UNIT: Final[str] = "weight"
 
 DEFAULT_NAME: Final[str] = "Baby Buddy"
 DEFAULT_PORT: Final[int] = 8000
 DEFAULT_PATH: Final[str] = ""
 DEFAULT_SCAN_INTERVAL: Final[int] = 60
+DEFAULT_MQTT_TOPIC_PREFIX: Final[str] = "babybuddy"
 
 CONFIG_FLOW_VERSION: Final[int] = 2
 CONFIG_FLOW_MINOR_VERSION: Final[int] = 1
