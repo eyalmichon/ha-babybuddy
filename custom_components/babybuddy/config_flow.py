@@ -7,7 +7,7 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant import config_entries
-from homeassistant.config_entries import ConfigFlowResult
+from homeassistant.config_entries import ConfigFlowResult, OptionsFlowWithReload
 from homeassistant.const import (
     CONF_API_KEY,
     CONF_HOST,
@@ -27,6 +27,7 @@ from .client import BabyBuddyClient
 from .const import (
     CONF_FEEDING_UNIT,
     CONF_WEIGHT_UNIT,
+    CONFIG_FLOW_MINOR_VERSION,
     CONFIG_FLOW_VERSION,
     DEFAULT_NAME,
     DEFAULT_PATH,
@@ -50,6 +51,7 @@ class BabyBuddyFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle babybuddy config flow."""
 
     VERSION = CONFIG_FLOW_VERSION
+    MINOR_VERSION = CONFIG_FLOW_MINOR_VERSION
 
     @staticmethod
     @callback
@@ -57,7 +59,7 @@ class BabyBuddyFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         entry: config_entries.ConfigEntry,
     ) -> BabyBuddyOptionsFlowHandler:
         """Get the options flow for this handler."""
-        return BabyBuddyOptionsFlowHandler(entry)
+        return BabyBuddyOptionsFlowHandler()
 
     def __init__(self) -> None:
         """Initiate config flow."""
@@ -149,12 +151,12 @@ class BabyBuddyFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
 
-class BabyBuddyOptionsFlowHandler(config_entries.OptionsFlow):
-    """Handle babybuddy options."""
+class BabyBuddyOptionsFlowHandler(OptionsFlowWithReload):
+    """Handle babybuddy options.
 
-    def __init__(self, entry: config_entries.ConfigEntry) -> None:
-        """Init object."""
-        self.entry = entry
+    Extends OptionsFlowWithReload so the config entry is automatically
+    reloaded when options change (no manual update listener needed).
+    """
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -163,31 +165,31 @@ class BabyBuddyOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        options: dict[vol.Optional, Any] = {
-            vol.Optional(
-                TEMPERATURE,
-                default=self.entry.options.get(TEMPERATURE, None),
-            ): vol.In([UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT]),
-            vol.Optional(
-                CONF_WEIGHT_UNIT,
-                default=self.entry.options.get(CONF_WEIGHT_UNIT, None),
-            ): vol.In(
-                [
-                    UnitOfMass.KILOGRAMS,
-                    UnitOfMass.GRAMS,
-                    UnitOfMass.POUNDS,
-                    UnitOfMass.OUNCES,
-                ]
-            ),
-            vol.Optional(
-                CONF_FEEDING_UNIT,
-                default=self.entry.options.get(CONF_FEEDING_UNIT, None),
-            ): vol.In([UnitOfVolume.MILLILITERS, UnitOfVolume.FLUID_OUNCES]),
-            vol.Optional(
-                CONF_SCAN_INTERVAL,
-                default=self.entry.options.get(
-                    CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
+        options_schema = vol.Schema(
+            {
+                vol.Optional(TEMPERATURE): vol.In(
+                    [UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT]
                 ),
-            ): cv.positive_int,
-        }
-        return self.async_show_form(step_id="init", data_schema=vol.Schema(options))
+                vol.Optional(CONF_WEIGHT_UNIT): vol.In(
+                    [
+                        UnitOfMass.KILOGRAMS,
+                        UnitOfMass.GRAMS,
+                        UnitOfMass.POUNDS,
+                        UnitOfMass.OUNCES,
+                    ]
+                ),
+                vol.Optional(CONF_FEEDING_UNIT): vol.In(
+                    [UnitOfVolume.MILLILITERS, UnitOfVolume.FLUID_OUNCES]
+                ),
+                vol.Optional(
+                    CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL
+                ): cv.positive_int,
+            }
+        )
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=self.add_suggested_values_to_schema(
+                options_schema, self.config_entry.options
+            ),
+        )

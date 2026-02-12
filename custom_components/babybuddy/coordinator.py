@@ -54,42 +54,32 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
     """Coordinate retrieving and updating data from babybuddy."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
-        """Initialize the BabyBuddyData object."""
+        """Initialize the BabyBuddyCoordinator."""
         LOGGER.debug("Initializing BabyBuddyCoordinator")
         super().__init__(
             hass,
             LOGGER,
             name=DOMAIN,
-            setup_method=self.async_setup_coordinator,
-            update_method=self.async_update,
+            config_entry=entry,
             update_interval=timedelta(
                 seconds=entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
             ),
         )
-        self.hass = hass
-        self.entry: ConfigEntry = entry
         self.client: BabyBuddyClient = BabyBuddyClient(
             entry.data[CONF_HOST],
             entry.data[CONF_PORT],
             entry.data[CONF_PATH],
             entry.data[CONF_API_KEY],
-            async_get_clientsession(self.hass),
+            async_get_clientsession(hass),
         )
-        self.device_registry: dr.DeviceRegistry = dr.async_get(self.hass)
+        self.device_registry: dr.DeviceRegistry = dr.async_get(hass)
         self.child_ids: list[str] = []
 
-    async def async_set_children_from_db(self) -> None:
-        """Set child_ids from HA database."""
-        self.child_ids = [
-            next(iter(device.identifiers))[1]
-            for device in dr.async_entries_for_config_entry(
-                self.device_registry, self.entry.entry_id
-            )
-        ]
+    async def _async_setup(self) -> None:
+        """Set up the coordinator.
 
-    async def async_setup_coordinator(self) -> None:
-        """Set up babybuddy."""
-
+        Called automatically during async_config_entry_first_refresh.
+        """
         try:
             await self.client.async_connect()
         except AuthorizationError as error:
@@ -97,24 +87,29 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
         except ConnectError as error:
             raise ConfigEntryNotReady(error) from error
 
-        await self.async_set_children_from_db()
+        await self._async_set_children_from_db()
 
-        self.entry.async_on_unload(
-            self.entry.add_update_listener(options_updated_listener)
-        )
+    async def _async_set_children_from_db(self) -> None:
+        """Set child_ids from HA database."""
+        self.child_ids = [
+            next(iter(device.identifiers))[1]
+            for device in dr.async_entries_for_config_entry(
+                self.device_registry, self.config_entry.entry_id
+            )
+        ]
 
-    async def async_remove_deleted_children(self) -> None:
+    async def _async_remove_deleted_children(self) -> None:
         """Remove child device if child is removed from babybuddy."""
         for device in dr.async_entries_for_config_entry(
-            self.device_registry, self.entry.entry_id
+            self.device_registry, self.config_entry.entry_id
         ):
             if next(iter(device.identifiers))[1] not in self.child_ids:
                 self.device_registry.async_remove_device(device.id)
 
-    async def async_update(
+    async def _async_update_data(
         self,
     ) -> tuple[list[dict[str, str]], dict[int, dict[str, dict[str, str]]]]:
-        """Update babybuddy data."""
+        """Fetch data from API endpoint."""
         children_list: dict[str, Any] = {}
         child_data: dict[int, dict[str, dict[str, str]]] = {}
 
@@ -128,7 +123,7 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
 
         if children_list[ATTR_COUNT] < len(self.child_ids):
             self.child_ids = [child[ATTR_ID] for child in children_list[ATTR_RESULTS]]
-            await self.async_remove_deleted_children()
+            await self._async_remove_deleted_children()
         if children_list[ATTR_COUNT] == 0:
             raise UpdateFailed("No children found. Please add at least one child.")
         if children_list[ATTR_COUNT] > len(self.child_ids):
@@ -154,11 +149,3 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
                 child_data[child[ATTR_ID]][endpoint.key] = data[0] if data else {}
 
         return (children_list[ATTR_RESULTS], child_data)
-
-
-async def options_updated_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Handle options update."""
-    entry.runtime_data.coordinator.update_interval = timedelta(
-        seconds=entry.options[CONF_SCAN_INTERVAL]
-    )
-    await entry.runtime_data.coordinator.async_request_refresh()

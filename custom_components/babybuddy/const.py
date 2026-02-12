@@ -27,6 +27,7 @@ DEFAULT_PATH: Final[str] = ""
 DEFAULT_SCAN_INTERVAL: Final[int] = 60
 
 CONFIG_FLOW_VERSION: Final[int] = 2
+CONFIG_FLOW_MINOR_VERSION: Final[int] = 1
 
 ATTR_AMOUNT: Final[str] = "amount"
 ATTR_BABYBUDDY_CHILD: Final[str] = "babybuddy_child"

@@ -50,7 +50,7 @@ class BabyBuddySensor(CoordinatorEntity, SensorEntity):
         super().__init__(coordinator)
         self.child = child
         self._attr_device_info = {
-            "configuration_url": f"{coordinator.entry.data[CONF_HOST]}:{coordinator.entry.data[CONF_PORT]}{coordinator.entry.data[CONF_PATH]}/children/{child[ATTR_SLUG]}/dashboard/",
+            "configuration_url": f"{coordinator.config_entry.data[CONF_HOST]}:{coordinator.config_entry.data[CONF_PORT]}{coordinator.config_entry.data[CONF_PATH]}/children/{child[ATTR_SLUG]}/dashboard/",
             "identifiers": {(DOMAIN, child[ATTR_ID])},
             "name": f"{child[ATTR_FIRST_NAME]} {child[ATTR_LAST_NAME]}",
         }
@@ -65,7 +65,7 @@ class BabyBuddyChildSensor(BabyBuddySensor):
 
         self._attr_name = f"Baby {child['first_name']} {child['last_name']}"
         self._attr_unique_id = (
-            f"{coordinator.entry.data[CONF_API_KEY]}-{child[ATTR_ID]}"
+            f"{coordinator.config_entry.data[CONF_API_KEY]}-{child[ATTR_ID]}"
         )
         self._attr_native_value = child[ATTR_BIRTH_DATE]
         self._attr_icon = ATTR_ICON_CHILD_SENSOR
@@ -98,7 +98,7 @@ class BabyBuddyChildDataSensor(BabyBuddySensor):
         super().__init__(coordinator, child)
 
         self.entity_description = description
-        self._attr_unique_id = f"{self.coordinator.entry.data[CONF_API_KEY]}-{child[ATTR_ID]}-{description.key}"
+        self._attr_unique_id = f"{self.coordinator.config_entry.data[CONF_API_KEY]}-{child[ATTR_ID]}-{description.key}"
 
     @property
     def name(self) -> str:
@@ -154,7 +154,7 @@ class BabyBuddyChildDataSensor(BabyBuddySensor):
     @property
     def native_unit_of_measurement(self) -> str | None:
         """Return entity unit of measurement."""
-        return self.coordinator.entry.options.get(
+        return self.coordinator.config_entry.options.get(
             self.entity_description.key,
             self.entity_description.native_unit_of_measurement,
         )
@@ -177,7 +177,7 @@ class BabyBuddyChildTimerSwitch(CoordinatorEntity, SwitchEntity):
             f"{self.child[ATTR_FIRST_NAME]} {self.child[ATTR_LAST_NAME]} {ATTR_TIMER}"
         )
         self._attr_unique_id = (
-            f"{self.coordinator.entry.data[CONF_API_KEY]}-{child[ATTR_ID]}-{ATTR_TIMER}"
+            f"{self.coordinator.config_entry.data[CONF_API_KEY]}-{child[ATTR_ID]}-{ATTR_TIMER}"
         )
         self._attr_icon = ATTR_ICON_TIMER_SAND
         self._attr_device_info = {
@@ -235,7 +235,7 @@ class BabyBuddySelect(CoordinatorEntity, SelectEntity, RestoreEntity):
         """Initialize the Babybuddy select entity."""
         super().__init__(coordinator)
         self._attr_unique_id = (
-            f"{self.coordinator.entry.data[CONF_API_KEY]}-{entity_description.key}"
+            f"{self.coordinator.config_entry.data[CONF_API_KEY]}-{entity_description.key}"
         )
         self._attr_options = entity_description.options
         self.entity_description = entity_description
