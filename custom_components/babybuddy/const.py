@@ -247,4 +247,4 @@ SELECTOR_TYPES: tuple[BabyBuddySelectDescription, ...] = (
     ),
 )
 
-PLATFORMS: Final = ["sensor", "select", "switch"]
+PLATFORMS: Final = ["binary_sensor", "sensor", "select", "switch"]
