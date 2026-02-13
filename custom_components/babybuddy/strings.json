@@ -41,7 +41,7 @@
         "data_description": {
           "mqtt_enabled": "Subscribe to Baby Buddy MQTT topics for real-time sensor updates. Requires MQTT to be configured in both Home Assistant and Baby Buddy.",
           "mqtt_topic_prefix": "The MQTT topic prefix configured in Baby Buddy (e.g. 'babybuddy' subscribes to 'babybuddy/#').",
-          "scan_interval": "How often to poll the Baby Buddy API (seconds). When MQTT is enabled, this acts as a fallback interval."
+          "scan_interval": "How often to poll the Baby Buddy REST API (seconds). When MQTT is enabled, polling still occurs at this interval as a safety net. You may want to increase this (e.g. 300) when using MQTT."
         }
       }
     }

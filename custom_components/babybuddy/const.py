@@ -282,6 +282,4 @@ MQTT_TOPIC_TO_DATA_KEY: Final[dict[str, str]] = {
     "timer": "timers",
 }
 
-MQTT_FALLBACK_SCAN_INTERVAL: Final[int] = 300
-
 PLATFORMS: Final = ["binary_sensor", "sensor", "select", "switch"]

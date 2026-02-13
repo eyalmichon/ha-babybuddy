@@ -186,23 +186,29 @@ class BabyBuddyChildTimerSwitch(CoordinatorEntity, SwitchEntity):
         }
 
     @property
+    def _timer_data(self) -> dict[str, Any]:
+        """Return the current timer data dict, or empty dict if unavailable."""
+        child_data = self.coordinator.data[1].get(self.child[ATTR_ID], {})
+        timer_data = child_data.get(ATTR_TIMERS)
+        return timer_data if isinstance(timer_data, dict) else {}
+
+    @property
     def is_on(self) -> bool:
         """Return entity state."""
-        if self.child[ATTR_ID] in self.coordinator.data[1]:
-            timer_data = self.coordinator.data[1][self.child[ATTR_ID]][ATTR_TIMERS]
-            # In Babybuddy 2.0 'active' is not in the JSON response, so return
-            # True if any timers are returned, as only active timers are
-            # returned.
-            return timer_data.get("active", len(timer_data) > 0)
-        return False
+        timer_data = self._timer_data
+        if not timer_data:
+            return False
+        # In Babybuddy 2.0 'active' is not in the JSON response, so return
+        # True if any timers are returned, as only active timers are
+        # returned.
+        return timer_data.get("active", True)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return entity specific state attributes for babybuddy."""
-        attrs: dict[str, Any] = {}
         if self.is_on:
-            attrs = self.coordinator.data[1][self.child[ATTR_ID]].get(ATTR_TIMERS)
-        return attrs
+            return self._timer_data
+        return {}
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Start a new timer."""
@@ -215,7 +221,10 @@ class BabyBuddyChildTimerSwitch(CoordinatorEntity, SwitchEntity):
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Delete active timer."""
-        timer_id = self.extra_state_attributes[ATTR_ID]
+        timer_data = self._timer_data
+        timer_id = timer_data.get(ATTR_ID)
+        if timer_id is None:
+            return
         await self.coordinator.client.async_delete(ATTR_TIMERS, timer_id)
         await self.coordinator.async_request_refresh()
 

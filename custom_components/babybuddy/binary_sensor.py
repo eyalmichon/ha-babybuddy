@@ -90,28 +90,32 @@ class BabyBuddyMedicationOverdueSensor(CoordinatorEntity, BinarySensorEntity):
 
     @property
     def available(self) -> bool:
-        """Return True if stats data is available."""
+        """Return True if coordinator data is available."""
+        return bool(self.coordinator.data)
+
+    @property
+    def _stats(self) -> dict[str, Any]:
+        """Return the stats dict for this child, or empty dict."""
         if not self.coordinator.data:
-            return False
+            return {}
         child_data = self.coordinator.data[1].get(self.child[ATTR_ID], {})
-        return "stats" in child_data
+        return child_data.get("stats", {})
 
     @property
     def is_on(self) -> bool | None:
-        """Return True if any medication is overdue."""
-        if not self.available:
-            return None
-        child_data = self.coordinator.data[1].get(self.child[ATTR_ID], {})
-        stats = child_data.get("stats", {})
-        return stats.get("medications_overdue_count", 0) > 0
+        """Return True if any medication is overdue.
+
+        Returns False (not None) when stats haven't been received yet,
+        so the sensor shows 'Clear' rather than 'Unavailable'.
+        """
+        return self._stats.get("medications_overdue_count", 0) > 0
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return entity specific state attributes."""
-        if not self.available:
+        stats = self._stats
+        if not stats:
             return {}
-        child_data = self.coordinator.data[1].get(self.child[ATTR_ID], {})
-        stats = child_data.get("stats", {})
         return {
             "overdue_names": stats.get("medications_overdue", []),
             "overdue_count": stats.get("medications_overdue_count", 0),

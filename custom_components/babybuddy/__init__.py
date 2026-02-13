@@ -39,7 +39,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: BabyBuddyConfigEntry) ->
 
     # Set up MQTT subscriptions after first data fetch (child slugs needed)
     if entry.options.get("mqtt_enabled", False):
-        await coordinator._setup_mqtt_subscriptions()
+        try:
+            await coordinator._setup_mqtt_subscriptions()
+        except Exception:
+            LOGGER.exception("Failed to set up MQTT subscriptions")
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

@@ -41,7 +41,6 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     LOGGER,
-    MQTT_FALLBACK_SCAN_INTERVAL,
     MQTT_TOPIC_KEYS,
     MQTT_TOPIC_TO_DATA_KEY,
     SENSOR_TYPES,
@@ -166,14 +165,11 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
             )
             self._mqtt_unsubscribes.append(unsub)
 
-        # Increase polling interval as MQTT provides real-time updates
-        self.update_interval = timedelta(seconds=MQTT_FALLBACK_SCAN_INTERVAL)
-
         LOGGER.info(
             "Subscribed to Baby Buddy MQTT topics under prefix '%s'", prefix
         )
 
-    def _handle_mqtt_message(self, msg) -> None:
+    async def _handle_mqtt_message(self, msg) -> None:
         """Handle incoming MQTT state message."""
         # Parse topic: {prefix}/{child_slug}/{data_type}/state
         parts = msg.topic.split("/")
@@ -210,7 +206,7 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
             child_data[child_id][coordinator_key] = payload
             self.async_set_updated_data((children_list, child_data))
 
-    def _handle_stats_message(self, msg) -> None:
+    async def _handle_stats_message(self, msg) -> None:
         """Handle incoming MQTT stats message."""
         parts = msg.topic.split("/")
         if len(parts) < 4:
