@@ -35,16 +35,13 @@ from .const import (
     ATTR_LAST_NAME,
     ATTR_RESULTS,
     ATTR_SLUG,
-    CONF_MQTT_ENABLED,
     CONF_MQTT_TOPIC_PREFIX,
     DEFAULT_MQTT_TOPIC_PREFIX,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     LOGGER,
-    MQTT_TOPIC_KEYS,
-    MQTT_TOPIC_TO_DATA_KEY,
-    SENSOR_TYPES,
 )
+from .discovery import FALLBACK_METADATA, sensor_description_from_metadata
 from .errors import AuthorizationError, ConnectError
 
 type BabyBuddyConfigEntry = ConfigEntry[BabyBuddyData]
@@ -83,6 +80,7 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
         self.device_registry: dr.DeviceRegistry = dr.async_get(hass)
         self.child_ids: list[str] = []
         self._mqtt_unsubscribes: list[Callable] = []
+        self.metadata: dict[str, Any] = FALLBACK_METADATA
 
     async def _async_setup(self) -> None:
         """Set up the coordinator.
@@ -96,6 +94,28 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
         except ConnectError as error:
             raise ConfigEntryNotReady(error) from error
 
+        # Try dynamic discovery from Baby Buddy; fall back to hardcoded
+        try:
+            self.metadata = await self.client.async_get_discovery()
+            LOGGER.info("Loaded entity metadata from Baby Buddy discovery endpoint")
+        except ClientResponseError as err:
+            if err.status == HTTPStatus.NOT_FOUND:
+                LOGGER.debug(
+                    "Baby Buddy discovery endpoint not available, "
+                    "using fallback metadata"
+                )
+            else:
+                LOGGER.warning(
+                    "Error fetching discovery metadata (%s), using fallback",
+                    err.status,
+                )
+            self.metadata = FALLBACK_METADATA
+        except (AsyncIOTimeoutError, ClientError):
+            LOGGER.warning(
+                "Could not reach discovery endpoint, using fallback metadata"
+            )
+            self.metadata = FALLBACK_METADATA
+
         await self._async_set_children_from_db()
 
     async def _async_set_children_from_db(self) -> None:
@@ -105,6 +125,14 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
             for device in dr.async_entries_for_config_entry(
                 self.device_registry, self.config_entry.entry_id
             )
+        ]
+
+    @property
+    def sensor_descriptions(self) -> list:
+        """Build BabyBuddyEntityDescription list from metadata."""
+        return [
+            sensor_description_from_metadata(m)
+            for m in self.metadata.get("sensors", [])
         ]
 
     @property
@@ -141,11 +169,12 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
         )
 
         # Subscribe after first REST poll so child slugs are available
+        mqtt_topics = self.metadata.get("mqtt", {}).get("topics", {})
         for child in self.data[0]:
             child_slug = child[ATTR_SLUG]
 
             # Subscribe to each data type topic
-            for topic_key in MQTT_TOPIC_KEYS:
+            for topic_key in mqtt_topics:
                 topic = f"{prefix}/{child_slug}/{topic_key}/state"
                 unsub = await async_subscribe(
                     self.hass,
@@ -186,8 +215,9 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
             LOGGER.warning("Invalid MQTT payload on topic %s", msg.topic)
             return
 
-        # Map MQTT data_type to coordinator data key
-        coordinator_key = MQTT_TOPIC_TO_DATA_KEY.get(data_type)
+        # Map MQTT data_type to coordinator data key via metadata
+        mqtt_topics = self.metadata.get("mqtt", {}).get("topics", {})
+        coordinator_key = mqtt_topics.get(data_type)
         if not coordinator_key:
             LOGGER.debug("Unknown MQTT data type: %s", data_type)
             return
@@ -262,22 +292,27 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
 
         for child in children_list[ATTR_RESULTS]:
             child_data.setdefault(child[ATTR_ID], {})
-            for endpoint in SENSOR_TYPES:
+            for sensor_meta in self.metadata.get("sensors", []):
+                endpoint_key = sensor_meta["key"]
                 endpoint_data: dict = {}
                 try:
                     endpoint_data = await self.client.async_get(
-                        endpoint.key, f"?child={child[ATTR_ID]}&limit=1"
+                        endpoint_key, f"?child={child[ATTR_ID]}&limit=1"
                     )
                 except ClientResponseError as error:
                     LOGGER.debug(
-                        f"No {endpoint} found for {child[ATTR_FIRST_NAME]} {child[ATTR_LAST_NAME]}. Skipping. error: {error}.)"
+                        "No %s found for %s %s. Skipping. error: %s",
+                        endpoint_key,
+                        child[ATTR_FIRST_NAME],
+                        child[ATTR_LAST_NAME],
+                        error,
                     )
                     continue
                 except (AsyncIOTimeoutError, ClientError) as error:
                     LOGGER.error(error)
                     continue
                 data: list[dict[str, str]] = endpoint_data[ATTR_RESULTS]
-                child_data[child[ATTR_ID]][endpoint.key] = data[0] if data else {}
+                child_data[child[ATTR_ID]][endpoint_key] = data[0] if data else {}
 
             # Fetch stats (medication overdue, daily aggregates)
             try:

@@ -1,30 +1,6 @@
 """Test babybuddy sensors."""
 
 import pytest
-
-from custom_components.babybuddy.const import (
-    ATTR_ACTION_ADD_BMI,
-    ATTR_ACTION_ADD_DIAPER_CHANGE,
-    ATTR_ACTION_ADD_HEAD_CIRCUMFERENCE,
-    ATTR_ACTION_ADD_HEIGHT,
-    ATTR_ACTION_ADD_NOTE,
-    ATTR_ACTION_ADD_TEMPERATURE,
-    ATTR_ACTION_ADD_WEIGHT,
-    ATTR_BMI,
-    ATTR_HEAD_CIRCUMFERENCE_UNDERSCORE,
-    ATTR_HEIGHT,
-    ATTR_ICON_HEAD,
-    ATTR_ICON_HEIGHT,
-    ATTR_ICON_NOTE,
-    ATTR_ICON_PAPER_ROLL,
-    ATTR_ICON_SCALE,
-    ATTR_ICON_THERMOMETER,
-    ATTR_NOTE,
-    ATTR_NOTES,
-    ATTR_TAGS,
-    ATTR_WEIGHT,
-    DOMAIN,
-)
 from homeassistant.components.sensor.const import (
     ATTR_STATE_CLASS,
     SensorDeviceClass,
@@ -39,6 +15,24 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
+
+from custom_components.babybuddy.const import (
+    ATTR_ACTION_ADD_BMI,
+    ATTR_ACTION_ADD_DIAPER_CHANGE,
+    ATTR_ACTION_ADD_HEAD_CIRCUMFERENCE,
+    ATTR_ACTION_ADD_HEIGHT,
+    ATTR_ACTION_ADD_NOTE,
+    ATTR_ACTION_ADD_TEMPERATURE,
+    ATTR_ACTION_ADD_WEIGHT,
+    ATTR_BMI,
+    ATTR_HEAD_CIRCUMFERENCE_UNDERSCORE,
+    ATTR_HEIGHT,
+    ATTR_NOTE,
+    ATTR_NOTES,
+    ATTR_TAGS,
+    ATTR_WEIGHT,
+    DOMAIN,
+)
 
 from .const import (
     MOCK_BABY_NAME,
@@ -71,7 +65,7 @@ async def test_service_add_bmi(
     state = hass.states.get(entity_id)
 
     assert state
-    assert state.attributes[ATTR_ICON] == ATTR_ICON_SCALE
+    assert state.attributes[ATTR_ICON] == "mdi:scale-bathroom"
     assert state.attributes[ATTR_NOTES] == MOCK_SERVICE_ADD_BMI_SCHEMA[ATTR_NOTES]
     assert state.attributes[ATTR_STATE_CLASS] == SensorStateClass.MEASUREMENT
     assert state.attributes[ATTR_TAGS] == MOCK_SERVICE_ADD_BMI_SCHEMA[ATTR_TAGS]
@@ -97,7 +91,7 @@ async def test_service_add_diaper_change(
 
     assert state
     assert state.attributes[ATTR_DEVICE_CLASS] == SensorDeviceClass.TIMESTAMP
-    assert state.attributes[ATTR_ICON] == ATTR_ICON_PAPER_ROLL
+    assert state.attributes[ATTR_ICON] == "mdi:paper-roll-outline"
     assert state.attributes[ATTR_NOTES] == MOCK_SERVICE_ADD_DIAPER_CHANGE[ATTR_NOTES]
     assert state.attributes[ATTR_TAGS] == MOCK_SERVICE_ADD_DIAPER_CHANGE[ATTR_TAGS]
     assert (
@@ -123,7 +117,7 @@ async def test_service_add_head_circumference(
     state = hass.states.get(entity_id)
 
     assert state
-    assert state.attributes[ATTR_ICON] == ATTR_ICON_HEAD
+    assert state.attributes[ATTR_ICON] == "mdi:head-outline"
     assert (
         state.attributes[ATTR_NOTES] == MOCK_SERVICE_ADD_HEAD_CIRCUMFERENCE[ATTR_NOTES]
     )
@@ -152,7 +146,7 @@ async def test_service_add_height(
     state = hass.states.get(entity_id)
 
     assert state
-    assert state.attributes[ATTR_ICON] == ATTR_ICON_HEIGHT
+    assert state.attributes[ATTR_ICON] == "mdi:human-male-height"
     assert state.attributes[ATTR_NOTES] == MOCK_SERVICE_ADD_HEIGHT[ATTR_NOTES]
     assert state.attributes[ATTR_STATE_CLASS] == SensorStateClass.MEASUREMENT
     assert state.attributes[ATTR_TAGS] == MOCK_SERVICE_ADD_HEIGHT[ATTR_TAGS]
@@ -177,7 +171,7 @@ async def test_service_add_note(
     state = hass.states.get(entity_id)
 
     assert state
-    assert state.attributes[ATTR_ICON] == ATTR_ICON_NOTE
+    assert state.attributes[ATTR_ICON] == "mdi:note-multiple-outline"
     assert state.attributes[ATTR_NOTE] == MOCK_SERVICE_ADD_NOTE[ATTR_NOTE]
     assert state.attributes[ATTR_TAGS] == MOCK_SERVICE_ADD_NOTE[ATTR_TAGS]
     assert dt_util.parse_datetime(state.state) == MOCK_SERVICE_ADD_NOTE[ATTR_TIME]
@@ -201,7 +195,7 @@ async def test_service_add_temperature(
     state = hass.states.get(entity_id)
 
     assert state
-    assert state.attributes[ATTR_ICON] == ATTR_ICON_THERMOMETER
+    assert state.attributes[ATTR_ICON] == "mdi:thermometer"
     assert state.attributes[ATTR_NOTES] == MOCK_SERVICE_ADD_TEMPERATURE[ATTR_NOTES]
     assert state.attributes[ATTR_STATE_CLASS] == SensorStateClass.MEASUREMENT
     assert state.attributes[ATTR_TAGS] == MOCK_SERVICE_ADD_TEMPERATURE[ATTR_TAGS]
@@ -226,7 +220,7 @@ async def test_service_add_weight(
     state = hass.states.get(entity_id)
 
     assert state
-    assert state.attributes[ATTR_ICON] == ATTR_ICON_SCALE
+    assert state.attributes[ATTR_ICON] == "mdi:scale-bathroom"
     assert state.attributes[ATTR_NOTES] == MOCK_SERVICE_ADD_WEIGHT[ATTR_NOTES]
     assert state.attributes[ATTR_STATE_CLASS] == SensorStateClass.MEASUREMENT
     assert state.attributes[ATTR_TAGS] == MOCK_SERVICE_ADD_WEIGHT[ATTR_TAGS]

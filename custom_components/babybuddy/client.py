@@ -120,6 +120,18 @@ class BabyBuddyClient:
         except (AsyncIOTimeoutError, ClientError) as error:
             LOGGER.error(error)
 
+    async def async_get_discovery(self) -> dict[str, Any]:
+        """GET the HA discovery metadata from Baby Buddy."""
+        url = f"{self.url}/api/ha/discovery"
+        async with asyncio.timeout(10):
+            LOGGER.debug("GET URL: %s", url)
+            resp = await self.session.get(
+                url=url,
+                headers=self.headers,
+                raise_for_status=True,
+            )
+        return await resp.json()
+
     async def async_get_stats(self, child_slug: str) -> dict[str, Any]:
         """GET stats for a specific child by slug."""
         url = f"{self.url}/api/children/{child_slug}/stats/"

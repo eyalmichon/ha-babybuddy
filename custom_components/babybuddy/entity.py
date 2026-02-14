@@ -6,7 +6,7 @@ from typing import Any
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.components.sensor import SensorEntity
-from homeassistant.components.sensor.const import SensorDeviceClass
+from homeassistant.components.sensor.const import SensorDeviceClass, SensorStateClass
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.const import ATTR_ID, CONF_API_KEY, CONF_HOST, CONF_PATH, CONF_PORT
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -43,6 +43,7 @@ from .coordinator import BabyBuddyCoordinator
 class BabyBuddySensor(CoordinatorEntity, SensorEntity):
     """Base class for babybuddy sensors."""
 
+    _attr_has_entity_name = True
     coordinator: BabyBuddyCoordinator
 
     def __init__(self, coordinator: BabyBuddyCoordinator, child: dict) -> None:
@@ -63,7 +64,7 @@ class BabyBuddyChildSensor(BabyBuddySensor):
         """Initialize the sensor."""
         super().__init__(coordinator, child)
 
-        self._attr_name = f"Baby {child['first_name']} {child['last_name']}"
+        self._attr_name = None  # Primary device entity: uses device name
         self._attr_unique_id = (
             f"{coordinator.config_entry.data[CONF_API_KEY]}-{child[ATTR_ID]}"
         )
@@ -101,12 +102,15 @@ class BabyBuddyChildDataSensor(BabyBuddySensor):
         self._attr_unique_id = f"{self.coordinator.config_entry.data[CONF_API_KEY]}-{child[ATTR_ID]}-{description.key}"
 
     @property
-    def name(self) -> str:
+    def name(self) -> str | None:
         """Return the name of the babybuddy sensor."""
+        if self.entity_description.name:
+            return str(self.entity_description.name)
+        # Fallback for descriptions without a name
         sensor_type = self.entity_description.key
         if sensor_type[-1] == "s":
             sensor_type = sensor_type[:-1]
-        return f"{self.child[ATTR_FIRST_NAME]} {self.child[ATTR_LAST_NAME]} last {sensor_type}"
+        return f"Last {sensor_type}"
 
     @property
     def native_value(self) -> StateType:
@@ -160,9 +164,65 @@ class BabyBuddyChildDataSensor(BabyBuddySensor):
         )
 
 
+class BabyBuddyStatsSensor(BabyBuddySensor):
+    """Sensor that reads a value from the coordinator stats data."""
+
+    def __init__(
+        self,
+        coordinator: BabyBuddyCoordinator,
+        child: dict,
+        stats_meta: dict[str, Any],
+    ) -> None:
+        """Initialize the stats sensor."""
+        super().__init__(coordinator, child)
+        self._stats_meta = stats_meta
+        self._attr_unique_id = (
+            f"{coordinator.config_entry.data[CONF_API_KEY]}"
+            f"-{child[ATTR_ID]}-stats-{stats_meta['key']}"
+        )
+        self._attr_icon = stats_meta.get("icon")
+        if stats_meta.get("unit_of_measurement"):
+            self._attr_native_unit_of_measurement = stats_meta["unit_of_measurement"]
+
+        # Map string state_class to HA enum
+        _sc_map = {
+            "measurement": SensorStateClass.MEASUREMENT,
+            "total": SensorStateClass.TOTAL,
+            "total_increasing": SensorStateClass.TOTAL_INCREASING,
+        }
+        sc = stats_meta.get("state_class")
+        if sc and sc in _sc_map:
+            self._attr_state_class = _sc_map[sc]
+
+    @property
+    def name(self) -> str:
+        """Return the name of the sensor."""
+        return self._stats_meta["name"]
+
+    @property
+    def _stats(self) -> dict[str, Any]:
+        """Return the stats dict for this child, or empty dict."""
+        if not self.coordinator.data:
+            return {}
+        child_data = self.coordinator.data[1].get(self.child[ATTR_ID], {})
+        return child_data.get("stats", {})
+
+    @property
+    def native_value(self) -> StateType:
+        """Return the stats field value."""
+        field = self._stats_meta.get("stats_field", self._stats_meta["key"])
+        return self._stats.get(field)
+
+    @property
+    def available(self) -> bool:
+        """Return True if coordinator data is available."""
+        return bool(self.coordinator.data)
+
+
 class BabyBuddyChildTimerSwitch(CoordinatorEntity, SwitchEntity):
     """Representation of a babybuddy timer switch."""
 
+    _attr_has_entity_name = True
     coordinator: BabyBuddyCoordinator
 
     def __init__(
@@ -173,9 +233,7 @@ class BabyBuddyChildTimerSwitch(CoordinatorEntity, SwitchEntity):
         """Initialize the sensor."""
         super().__init__(coordinator)
         self.child = child
-        self._attr_name = (
-            f"{self.child[ATTR_FIRST_NAME]} {self.child[ATTR_LAST_NAME]} {ATTR_TIMER}"
-        )
+        self._attr_name = "Timer"
         self._attr_unique_id = (
             f"{self.coordinator.config_entry.data[CONF_API_KEY]}-{child[ATTR_ID]}-{ATTR_TIMER}"
         )

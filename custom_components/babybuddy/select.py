@@ -5,8 +5,8 @@ from __future__ import annotations
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import SELECTOR_TYPES
 from .coordinator import BabyBuddyConfigEntry
+from .discovery import select_description_from_metadata
 from .entity import BabyBuddySelect
 
 
@@ -18,6 +18,10 @@ async def async_setup_entry(
 ) -> None:
     """Set up babybuddy select entities for feeding and diaper change."""
     coordinator = entry.runtime_data.coordinator
+    select_descriptions = [
+        select_description_from_metadata(m)
+        for m in coordinator.metadata.get("selects", [])
+    ]
     async_add_entities(
-        [BabyBuddySelect(coordinator, entity) for entity in SELECTOR_TYPES]
+        [BabyBuddySelect(coordinator, desc) for desc in select_descriptions]
     )

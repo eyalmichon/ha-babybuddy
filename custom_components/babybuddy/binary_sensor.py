@@ -20,6 +20,11 @@ from .const import (
 )
 from .coordinator import BabyBuddyConfigEntry, BabyBuddyCoordinator
 
+_BINARY_DEVICE_CLASS_MAP: dict[str, BinarySensorDeviceClass] = {
+    "problem": BinarySensorDeviceClass.PROBLEM,
+    "safety": BinarySensorDeviceClass.SAFETY,
+}
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -46,47 +51,57 @@ def update_items(
     tracked: dict,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Add binary sensors for children that have stats data."""
-    new_entities: list[BabyBuddyMedicationOverdueSensor] = []
-    if coordinator.data:
-        for child in coordinator.data[0]:
-            key = f"{child[ATTR_ID]}_medication_overdue"
+    """Add binary sensors for children based on metadata."""
+    new_entities: list[BabyBuddyDynamicBinarySensor] = []
+    if not coordinator.data:
+        return
+
+    for child in coordinator.data[0]:
+        for bs_meta in coordinator.metadata.get("binary_sensors", []):
+            key = f"{child[ATTR_ID]}_{bs_meta['key']}"
             if key not in tracked:
-                tracked[key] = BabyBuddyMedicationOverdueSensor(coordinator, child)
+                tracked[key] = BabyBuddyDynamicBinarySensor(
+                    coordinator, child, bs_meta
+                )
                 new_entities.append(tracked[key])
-        if new_entities:
-            async_add_entities(new_entities)
+
+    if new_entities:
+        async_add_entities(new_entities)
 
 
-class BabyBuddyMedicationOverdueSensor(CoordinatorEntity, BinarySensorEntity):
-    """Binary sensor for medication overdue status."""
+class BabyBuddyDynamicBinarySensor(CoordinatorEntity, BinarySensorEntity):
+    """Binary sensor driven by metadata from the discovery endpoint."""
 
-    _attr_device_class = BinarySensorDeviceClass.PROBLEM
     _attr_has_entity_name = True
-
     coordinator: BabyBuddyCoordinator
 
     def __init__(
         self,
         coordinator: BabyBuddyCoordinator,
         child: dict,
+        meta: dict[str, Any],
     ) -> None:
         """Initialize the binary sensor."""
         super().__init__(coordinator)
         self.child = child
+        self._meta = meta
         self._attr_unique_id = (
             f"{coordinator.config_entry.data[CONF_API_KEY]}"
-            f"-{child[ATTR_ID]}-medication_overdue"
+            f"-{child[ATTR_ID]}-{meta['key']}"
         )
         self._attr_device_info = {
             "identifiers": {(DOMAIN, child[ATTR_ID])},
             "name": f"{child[ATTR_FIRST_NAME]} {child[ATTR_LAST_NAME]}",
         }
 
+        dc = meta.get("device_class")
+        if dc and dc in _BINARY_DEVICE_CLASS_MAP:
+            self._attr_device_class = _BINARY_DEVICE_CLASS_MAP[dc]
+
     @property
     def name(self) -> str:
         """Return the name of the binary sensor."""
-        return f"{self.child[ATTR_FIRST_NAME]} {self.child[ATTR_LAST_NAME]} medication overdue"
+        return self._meta["name"]
 
     @property
     def available(self) -> bool:
@@ -103,20 +118,27 @@ class BabyBuddyMedicationOverdueSensor(CoordinatorEntity, BinarySensorEntity):
 
     @property
     def is_on(self) -> bool | None:
-        """Return True if any medication is overdue.
+        """Evaluate the binary sensor state from metadata condition."""
+        field = self._meta.get("stats_field", "")
+        condition = self._meta.get("condition", "greater_than_zero")
+        value = self._stats.get(field, 0)
 
-        Returns False (not None) when stats haven't been received yet,
-        so the sensor shows 'Clear' rather than 'Unavailable'.
-        """
-        return self._stats.get("medications_overdue_count", 0) > 0
+        if condition == "greater_than_zero":
+            return value > 0
+        if condition == "truthy":
+            return bool(value)
+        # Default: treat as truthy
+        return bool(value)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return entity specific state attributes."""
+        """Return entity specific state attributes from metadata mapping."""
         stats = self._stats
         if not stats:
             return {}
+        attr_map = self._meta.get("attributes", {})
         return {
-            "overdue_names": stats.get("medications_overdue", []),
-            "overdue_count": stats.get("medications_overdue_count", 0),
+            attr_name: stats.get(stats_field)
+            for attr_name, stats_field in attr_map.items()
+            if stats.get(stats_field) is not None
         }
