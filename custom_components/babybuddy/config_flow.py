@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
-
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult, OptionsFlowWithReload
 from homeassistant.const import (
@@ -40,6 +39,9 @@ from .const import (
 )
 from .errors import AuthorizationError, ConnectError
 
+if TYPE_CHECKING:
+    from homeassistant.components.zeroconf import ZeroconfServiceInfo
+
 DATA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_HOST): str,
@@ -66,7 +68,8 @@ class BabyBuddyFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         """Initiate config flow."""
-        self._reauth_unique_id = None
+        self._reauth_unique_id: str | None = None
+        self._discovered_info: dict[str, Any] = {}
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -103,6 +106,70 @@ class BabyBuddyFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=DATA_SCHEMA,
             errors=errors,
+        )
+
+    async def async_step_zeroconf(
+        self, discovery_info: ZeroconfServiceInfo
+    ) -> ConfigFlowResult:
+        """Handle Zeroconf discovery of a Baby Buddy instance."""
+        host = f"http://{discovery_info.host}"
+        port = discovery_info.port or DEFAULT_PORT
+        properties = discovery_info.properties or {}
+        path = properties.get("path", DEFAULT_PATH)
+        instance_id = properties.get("instance_id", "")
+
+        if not instance_id:
+            return self.async_abort(reason="no_instance_id")
+
+        await self.async_set_unique_id(instance_id)
+        self._abort_if_unique_id_configured(
+            updates={CONF_HOST: host, CONF_PORT: port, CONF_PATH: path}
+        )
+
+        self._discovered_info = {
+            CONF_HOST: host,
+            CONF_PORT: port,
+            CONF_PATH: path,
+        }
+        self.context["title_placeholders"] = {"name": f"Baby Buddy ({host})"}
+        return await self.async_step_zeroconf_confirm()
+
+    async def async_step_zeroconf_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Confirm Zeroconf discovery -- user provides API key."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            data = {**self._discovered_info, **user_input}
+            try:
+                client = BabyBuddyClient(
+                    data[CONF_HOST],
+                    data[CONF_PORT],
+                    data[CONF_PATH],
+                    data[CONF_API_KEY],
+                    async_get_clientsession(self.hass),
+                )
+                await client.async_connect()
+            except AuthorizationError:
+                errors["api_key"] = "invalid_auth"
+            except ConnectError:
+                errors["base"] = "cannot_connect"
+
+            if not errors:
+                return self.async_create_entry(
+                    title=f"{DEFAULT_NAME} ({data[CONF_HOST]})",
+                    data=data,
+                )
+
+        return self.async_show_form(
+            step_id="zeroconf_confirm",
+            data_schema=vol.Schema({vol.Required(CONF_API_KEY): str}),
+            errors=errors,
+            description_placeholders={
+                "host": self._discovered_info.get(CONF_HOST, ""),
+                "port": str(self._discovered_info.get(CONF_PORT, DEFAULT_PORT)),
+            },
         )
 
     async def async_step_reconfigure(

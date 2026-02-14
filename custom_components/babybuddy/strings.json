@@ -10,6 +10,13 @@
           "api_key": "API key"
         }
       },
+      "zeroconf_confirm": {
+        "title": "Baby Buddy Discovered",
+        "description": "A Baby Buddy instance was found at {host}:{port}. Enter your API key to complete setup.",
+        "data": {
+          "api_key": "API key"
+        }
+      },
       "reconfigure": {
         "title": "Reconfigure Baby Buddy Connection",
         "data": {
@@ -38,7 +45,8 @@
     },
     "abort": {
       "already_configured": "This Baby Buddy instance is already configured",
-      "reauth_successful": "Re-authentication was successful"
+      "reauth_successful": "Re-authentication was successful",
+      "no_instance_id": "Baby Buddy instance did not provide an instance ID"
     }
   },
   "options": {

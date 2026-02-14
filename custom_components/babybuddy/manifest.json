@@ -2,7 +2,11 @@
   "domain": "babybuddy",
   "name": "Baby Buddy",
   "after_dependencies": [
-    "mqtt"
+    "mqtt",
+    "zeroconf"
+  ],
+  "zeroconf": [
+    "_babybuddy._tcp.local."
   ],
   "codeowners": [
     "@jcgoette",
