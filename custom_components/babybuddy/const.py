@@ -112,4 +112,7 @@ class BabyBuddySelectDescription(SelectEntityDescription):
     """Describe Baby Buddy select entity."""
 
 
+ERR_TIME_FUTURE: Final[str] = "Time cannot be in the future."
+ERR_TIMER_NOT_FOUND: Final[str] = "Timer not found or stopped. Timer must be active."
+
 PLATFORMS: Final = ["binary_sensor", "sensor", "select", "switch"]

@@ -54,7 +54,7 @@ def get_bb_config() -> dict[str, Any]:
             if entry.get("domain") == "babybuddy":
                 d = entry["data"]
                 return {
-                    "host": f"{d['host']}:{d['port']}{d.get('path', '')}",
+                    "host": f"{d['host']}:{d['port']}{d.get('path') or ''}",
                     "port": d["port"],
                     "api_key": d["api_key"],
                 }

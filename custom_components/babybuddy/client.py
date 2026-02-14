@@ -14,7 +14,7 @@ from aiohttp.client_exceptions import ClientError, ClientResponseError
 from homeassistant.const import ATTR_DATE, ATTR_TIME
 from homeassistant.util import dt as dt_util
 
-from .const import LOGGER
+from .const import ERR_TIME_FUTURE, LOGGER
 from .errors import AuthorizationError, ConnectError, ValidationError
 
 
@@ -162,5 +162,5 @@ def get_datetime_from_time(value: datetime | time) -> datetime:
     if value.tzinfo is None:
         value = value.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE)
     if value > dt_util.now():
-        raise ValidationError("Time cannot be in the future.")
+        raise ValidationError(ERR_TIME_FUTURE)
     return value

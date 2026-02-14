@@ -71,6 +71,7 @@ from .const import (
     DIAPER_COLORS,
     DIAPER_TYPES,
     DOMAIN,
+    ERR_TIMER_NOT_FOUND,
     FEEDING_METHODS,
     FEEDING_TYPES,
     LOGGER,
@@ -206,7 +207,7 @@ async def __set_common_fields(
         child_id = data[ATTR_CHILD]
         timer_data = coordinator.data[1].get(child_id, {}).get(ATTR_TIMERS, {})
         if not timer_data:
-            raise ValidationError("Timer not found or stopped. Timer must be active.")
+            raise ValidationError(ERR_TIMER_NOT_FOUND)
         data[ATTR_TIMER] = timer_data[ATTR_ID]
     else:
         data[ATTR_START] = get_datetime_from_time(
