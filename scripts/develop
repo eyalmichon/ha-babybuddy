@@ -11,11 +11,10 @@ if [[ ! -d "${PWD}/.dev/ha" ]]; then
     hass --config "${PWD}/.dev/ha" --script ensure_config
 fi
 
-# Set the path to custom_components
-# This lets us have the structure we want <root>/custom_components/babybuddy
-# while at the same time have Home Assistant configuration inside <root>/.dev/ha
-# without resorting to symlinks.
-export PYTHONPATH="${PYTHONPATH}:${PWD}/custom_components"
+# Symlink custom_components into the HA config dir so HA discovers it natively.
+if [[ ! -e "${PWD}/.dev/ha/custom_components" ]]; then
+    ln -sf "${PWD}/custom_components" "${PWD}/.dev/ha/custom_components"
+fi
 
 echo "Starting Home Assistant..."
 echo "Access at: http://localhost:8123"

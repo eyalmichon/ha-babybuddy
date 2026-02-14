@@ -279,4 +279,17 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
                 data: list[dict[str, str]] = endpoint_data[ATTR_RESULTS]
                 child_data[child[ATTR_ID]][endpoint.key] = data[0] if data else {}
 
+            # Fetch stats (medication overdue, daily aggregates)
+            try:
+                stats = await self.client.async_get_stats(child[ATTR_SLUG])
+                child_data[child[ATTR_ID]]["stats"] = stats
+            except ClientResponseError as error:
+                LOGGER.debug(
+                    "Could not fetch stats for %s: %s",
+                    child[ATTR_SLUG],
+                    error,
+                )
+            except (AsyncIOTimeoutError, ClientError) as error:
+                LOGGER.debug("Stats fetch error for %s: %s", child[ATTR_SLUG], error)
+
         return (children_list[ATTR_RESULTS], child_data)

@@ -145,8 +145,8 @@ SENSOR_TYPES: tuple[BabyBuddyEntityDescription, ...] = (
     BabyBuddyEntityDescription(
         icon=ATTR_ICON_BABY_BOTTLE,
         key=ATTR_FEEDINGS,
-        state_class=SensorStateClass.MEASUREMENT,
-        state_key=ATTR_AMOUNT,
+        device_class=SensorDeviceClass.TIMESTAMP,
+        state_key=ATTR_START,
     ),
     BabyBuddyEntityDescription(
         icon=ATTR_ICON_HEAD,
@@ -263,6 +263,7 @@ MQTT_TOPIC_KEYS: Final = [
     "bmi",
     "note",
     "medication",
+    "medication_schedule",
     "timer",
 ]
 
@@ -279,6 +280,7 @@ MQTT_TOPIC_TO_DATA_KEY: Final[dict[str, str]] = {
     "bmi": "bmi",
     "note": "notes",
     "medication": "medications",
+    "medication_schedule": "medication_schedules",
     "timer": "timers",
 }
 
