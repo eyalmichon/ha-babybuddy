@@ -105,6 +105,60 @@ class BabyBuddyFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle reconfiguration of connection settings."""
+        errors: dict[str, str] = {}
+        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+        assert entry is not None
+
+        if user_input is not None:
+            try:
+                client = BabyBuddyClient(
+                    user_input[CONF_HOST],
+                    user_input[CONF_PORT],
+                    user_input.get(CONF_PATH, DEFAULT_PATH),
+                    user_input[CONF_API_KEY],
+                    async_get_clientsession(self.hass),
+                )
+                await client.async_connect()
+            except AuthorizationError:
+                errors["api_key"] = "invalid_auth"
+            except ConnectError:
+                errors["base"] = "cannot_connect"
+
+            if not errors:
+                new_data = {**entry.data, **user_input}
+                new_data.setdefault(CONF_PATH, DEFAULT_PATH)
+                return self.async_update_reload_and_abort(
+                    entry,
+                    unique_id=f"{user_input[CONF_HOST]}-{user_input[CONF_API_KEY]}",
+                    data=new_data,
+                    title=f"{DEFAULT_NAME} ({user_input[CONF_HOST]})",
+                )
+
+        reconfigure_schema = vol.Schema(
+            {
+                vol.Required(CONF_HOST, default=entry.data.get(CONF_HOST, "")): str,
+                vol.Required(
+                    CONF_PORT, default=entry.data.get(CONF_PORT, DEFAULT_PORT)
+                ): cv.port,
+                vol.Optional(
+                    CONF_PATH, default=entry.data.get(CONF_PATH, DEFAULT_PATH)
+                ): str,
+                vol.Required(
+                    CONF_API_KEY, default=entry.data.get(CONF_API_KEY, "")
+                ): str,
+            }
+        )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=reconfigure_schema,
+            errors=errors,
+        )
+
     async def async_step_reauth(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
