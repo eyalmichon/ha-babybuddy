@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import json
 import subprocess
 import time
 from pathlib import Path
@@ -166,12 +168,18 @@ def register(mcp) -> None:  # noqa: ANN001
         if "error" in result:
             return result
 
+        # Read manifest version from the custom component
+        manifest_version = None
+        manifest_path = Path(PROJECT_ROOT) / "custom_components" / domain / "manifest.json"
+        with contextlib.suppress(FileNotFoundError, json.JSONDecodeError, KeyError):
+            manifest_version = json.loads(manifest_path.read_text())["version"]
+
         entries = [
             {
                 "entry_id": e["entry_id"],
                 "state": e["state"],
                 "options": e.get("options", {}),
-                "version": f"{e.get('version')}.{e.get('minor_version')}",
+                "version": manifest_version or f"{e.get('version')}.{e.get('minor_version')}",
             }
             for e in result["body"]
             if e.get("domain") == domain
