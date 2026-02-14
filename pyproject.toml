@@ -12,6 +12,7 @@ packages = []
 [project.optional-dependencies]
 dev = [
     "colorlog",
+    "fastmcp",
     "hassil",
     "home-assistant-frontend",
     "ruff",
@@ -39,6 +40,15 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "PLR2004"]
+"scripts/**" = [
+    "S603",    # subprocess calls are intentional in dev tooling
+    "S607",    # partial executable paths are fine for dev scripts
+    "S108",    # /tmp usage is fine for dev tooling
+    "C901",    # complexity limits relaxed for tool registration functions
+    "PLR0915", # statement limits relaxed for tool registration functions
+    "FBT001",  # boolean positional args in tool signatures
+    "FBT002",  # boolean default values in tool signatures
+]
 
 [tool.ruff.lint.isort]
 known-first-party = ["custom_components.babybuddy"]
