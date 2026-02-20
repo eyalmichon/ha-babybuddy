@@ -11,8 +11,30 @@
           "api_key": "Chave de API"
         }
       },
+      "zeroconf_confirm": {
+        "title": "Baby Buddy Descoberto",
+        "description": "Uma instância do Baby Buddy foi encontrada em {host}:{port}. Introduza a sua chave de API para completar a configuração.",
+        "data": {
+          "api_key": "Chave de API"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigurar Ligação do Baby Buddy",
+        "data": {
+          "host": "Endereço",
+          "port": "Porta",
+          "path": "subpasta",
+          "api_key": "Chave de API"
+        },
+        "data_description": {
+          "host": "O URL da sua instância do Baby Buddy (ex: http://192.168.1.100)",
+          "port": "A porta em que o Baby Buddy está a correr",
+          "path": "Prefixo de caminho URL opcional (deixe vazio se não necessário)",
+          "api_key": "A sua chave de API do Baby Buddy"
+        }
+      },
       "reauth_confirm": {
-        "description": "A chave API guardada já não é váliada.",
+        "description": "A chave API guardada já não é válida.",
         "title": "Repita a autorização",
         "data": {
           "api_key": "Chave da API"
@@ -20,24 +42,37 @@
       }
     },
     "abort": {
-      "reauth_successful": "Reautenticação efeduada",
-      "already_configured": "Equipamento já configurado"
+      "reauth_successful": "Reautenticação efetuada",
+      "already_configured": "Equipamento já configurado",
+      "no_instance_id": "A instância do Baby Buddy não forneceu um ID de instância"
     },
     "error": {
       "cannot_connect": "Falha na ligação",
-      "invalid_auth": "Autenticação invalida"
+      "invalid_auth": "Autenticação inválida"
     }
   },
   "options": {
     "step": {
       "init": {
         "data": {
-          "scan_interval": "Intervalo de atuailzação em segundos",
+          "scan_interval": "Intervalo de atualização em segundos",
           "temperature": "Unidade de temperatura",
           "weight": "Unidade de medição altura",
-          "feedings": "Unidade de alimentação"
+          "feedings": "Unidade de alimentação",
+          "mqtt_enabled": "Ativar atualizações em tempo real via MQTT",
+          "mqtt_topic_prefix": "Prefixo de tópico MQTT"
+        },
+        "data_description": {
+          "mqtt_enabled": "Subscrever tópicos MQTT do Baby Buddy para atualizações em tempo real. Requer que o MQTT esteja configurado no Home Assistant e no Baby Buddy.",
+          "mqtt_topic_prefix": "O prefixo de tópico MQTT configurado no Baby Buddy (ex: 'babybuddy' subscreve 'babybuddy/#').",
+          "scan_interval": "Intervalo de consulta à API REST do Baby Buddy (segundos). Com MQTT ativo, a consulta continua a ocorrer como rede de segurança. Pode aumentar este valor (ex: 300) ao usar MQTT."
         }
       }
+    }
+  },
+  "exceptions": {
+    "entry_not_loaded": {
+      "message": "A integração do Baby Buddy não está carregada. Verifique a sua configuração."
     }
   }
 }

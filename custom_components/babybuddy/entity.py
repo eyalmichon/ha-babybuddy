@@ -16,23 +16,6 @@ from homeassistant.util import dt as dt_util
 
 from .client import get_datetime_from_time
 from .const import (
-    ATTR_BABYBUDDY_CHILD,
-    ATTR_BIRTH_DATE,
-    ATTR_CHANGES,
-    ATTR_CHILD,
-    ATTR_DESCRIPTIVE,
-    ATTR_FIRST_NAME,
-    ATTR_ICON_CHILD_SENSOR,
-    ATTR_ICON_TIMER_SAND,
-    ATTR_LAST_NAME,
-    ATTR_PICTURE,
-    ATTR_SLUG,
-    ATTR_SOLID,
-    ATTR_START,
-    ATTR_TIMER,
-    ATTR_TIMERS,
-    ATTR_WET,
-    DIAPER_TYPES,
     DOMAIN,
     BabyBuddyEntityDescription,
     BabyBuddySelectDescription,
@@ -50,10 +33,18 @@ class BabyBuddySensor(CoordinatorEntity, SensorEntity):
         """Initialize the sensor."""
         super().__init__(coordinator)
         self.child = child
+        child_meta = coordinator.metadata.get("child", {})
+        dashboard_path = child_meta.get(
+            "dashboard_path", "/children/{slug}/dashboard/"
+        ).replace("{slug}", child["slug"])
+        name_template = child_meta.get("name_template", "{first_name} {last_name}")
+        device_name = name_template.replace(
+            "{first_name}", child["first_name"]
+        ).replace("{last_name}", child["last_name"])
         self._attr_device_info = {
-            "configuration_url": f"{coordinator.config_entry.data[CONF_HOST]}:{coordinator.config_entry.data[CONF_PORT]}{coordinator.config_entry.data.get(CONF_PATH) or ''}/children/{child[ATTR_SLUG]}/dashboard/",
+            "configuration_url": f"{coordinator.config_entry.data[CONF_HOST]}:{coordinator.config_entry.data[CONF_PORT]}{coordinator.config_entry.data.get(CONF_PATH) or ''}{dashboard_path}",
             "identifiers": {(DOMAIN, child[ATTR_ID])},
-            "name": f"{child[ATTR_FIRST_NAME]} {child[ATTR_LAST_NAME]}",
+            "name": device_name,
         }
 
 
@@ -68,9 +59,10 @@ class BabyBuddyChildSensor(BabyBuddySensor):
         self._attr_unique_id = (
             f"{coordinator.config_entry.data[CONF_API_KEY]}-{child[ATTR_ID]}"
         )
-        self._attr_native_value = child[ATTR_BIRTH_DATE]
-        self._attr_icon = ATTR_ICON_CHILD_SENSOR
-        self._attr_device_class = ATTR_BABYBUDDY_CHILD
+        child_meta = coordinator.metadata.get("child", {})
+        self._attr_native_value = child[child_meta.get("state_field", "birth_date")]
+        self._attr_icon = child_meta.get("icon", "mdi:baby-face-outline")
+        self._attr_device_class = child_meta.get("device_class", "babybuddy_child")
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -80,7 +72,10 @@ class BabyBuddyChildSensor(BabyBuddySensor):
     @property
     def entity_picture(self) -> str | None:
         """Return babybuddy picture."""
-        image: str | None = self.child[ATTR_PICTURE]
+        picture_field = self.coordinator.metadata.get("child", {}).get(
+            "picture_field", "picture"
+        )
+        image: str | None = self.child.get(picture_field)
         return image
 
 
@@ -115,6 +110,8 @@ class BabyBuddyChildDataSensor(BabyBuddySensor):
     @property
     def native_value(self) -> StateType:
         """Return entity state."""
+        if not self.coordinator.data:
+            return None
         if self.child[ATTR_ID] not in self.coordinator.data[1]:
             return None
         data: dict[str, str] = self.coordinator.data[1][self.child[ATTR_ID]][
@@ -133,25 +130,24 @@ class BabyBuddyChildDataSensor(BabyBuddySensor):
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return entity specific state attributes."""
         attrs: dict[str, Any] = {}
+        if not self.coordinator.data:
+            return attrs
         if self.child[ATTR_ID] in self.coordinator.data[1]:
             attrs = self.coordinator.data[1][self.child[ATTR_ID]][
                 self.entity_description.key
             ]
-            if self.entity_description.key == ATTR_CHANGES:
-                wet_and_solid: tuple[bool, bool] = (
-                    self.coordinator.data[1][self.child[ATTR_ID]][
-                        self.entity_description.key
-                    ].get(ATTR_WET, False),
-                    self.coordinator.data[1][self.child[ATTR_ID]][
-                        self.entity_description.key
-                    ].get(ATTR_SOLID, False),
+            if self.entity_description.key == "changes":
+                mapping = (
+                    self.coordinator.metadata.get("transforms", {})
+                    .get("diaper_type_to_booleans", {})
+                    .get("mapping", {})
                 )
-                if wet_and_solid == (True, False):
-                    attrs[ATTR_DESCRIPTIVE] = DIAPER_TYPES[0]
-                if wet_and_solid == (False, True):
-                    attrs[ATTR_DESCRIPTIVE] = DIAPER_TYPES[1]
-                if wet_and_solid == (True, True):
-                    attrs[ATTR_DESCRIPTIVE] = DIAPER_TYPES[2]
+                wet = attrs.get("wet", False)
+                solid = attrs.get("solid", False)
+                for label, bools in mapping.items():
+                    if bools.get("wet") == wet and bools.get("solid") == solid:
+                        attrs["descriptive"] = label
+                        break
 
         return attrs
 
@@ -233,21 +229,28 @@ class BabyBuddyChildTimerSwitch(CoordinatorEntity, SwitchEntity):
         """Initialize the sensor."""
         super().__init__(coordinator)
         self.child = child
-        self._attr_name = "Timer"
+        timer_meta = coordinator.metadata.get("timer", {})
+        self._timer_endpoint = timer_meta.get("endpoint", "timers")
+        self._attr_name = timer_meta.get("name", "Timer")
         self._attr_unique_id = (
-            f"{self.coordinator.config_entry.data[CONF_API_KEY]}-{child[ATTR_ID]}-{ATTR_TIMER}"
+            f"{self.coordinator.config_entry.data[CONF_API_KEY]}-{child[ATTR_ID]}-timer"
         )
-        self._attr_icon = ATTR_ICON_TIMER_SAND
+        self._attr_icon = timer_meta.get("icon", "mdi:timer-sand")
+        child_meta = coordinator.metadata.get("child", {})
+        name_template = child_meta.get("name_template", "{first_name} {last_name}")
+        device_name = name_template.replace(
+            "{first_name}", child["first_name"]
+        ).replace("{last_name}", child["last_name"])
         self._attr_device_info = {
             "identifiers": {(DOMAIN, child[ATTR_ID])},
-            "name": f"{child[ATTR_FIRST_NAME]} {child[ATTR_LAST_NAME]}",
+            "name": device_name,
         }
 
     @property
     def _timer_data(self) -> dict[str, Any]:
         """Return the current timer data dict, or empty dict if unavailable."""
         child_data = self.coordinator.data[1].get(self.child[ATTR_ID], {})
-        timer_data = child_data.get(ATTR_TIMERS)
+        timer_data = child_data.get(self._timer_endpoint)
         return timer_data if isinstance(timer_data, dict) else {}
 
     @property
@@ -271,10 +274,10 @@ class BabyBuddyChildTimerSwitch(CoordinatorEntity, SwitchEntity):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Start a new timer."""
         data = {
-            ATTR_CHILD: self.child[ATTR_ID],
-            ATTR_START: get_datetime_from_time(dt_util.now()),
+            "child": self.child[ATTR_ID],
+            "start": get_datetime_from_time(dt_util.now()),
         }
-        await self.coordinator.client.async_post(ATTR_TIMERS, data)
+        await self.coordinator.client.async_post(self._timer_endpoint, data)
         await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
@@ -283,7 +286,7 @@ class BabyBuddyChildTimerSwitch(CoordinatorEntity, SwitchEntity):
         timer_id = timer_data.get(ATTR_ID)
         if timer_id is None:
             return
-        await self.coordinator.client.async_delete(ATTR_TIMERS, timer_id)
+        await self.coordinator.client.async_delete(self._timer_endpoint, timer_id)
         await self.coordinator.async_request_refresh()
 
 

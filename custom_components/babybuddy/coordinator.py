@@ -29,19 +29,13 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .client import BabyBuddyClient
 from .const import (
-    ATTR_CHILDREN,
-    ATTR_COUNT,
-    ATTR_FIRST_NAME,
-    ATTR_LAST_NAME,
-    ATTR_RESULTS,
-    ATTR_SLUG,
     CONF_MQTT_TOPIC_PREFIX,
     DEFAULT_MQTT_TOPIC_PREFIX,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     LOGGER,
 )
-from .discovery import FALLBACK_METADATA, sensor_description_from_metadata
+from .discovery import sensor_description_from_metadata
 from .errors import AuthorizationError, ConnectError
 
 type BabyBuddyConfigEntry = ConfigEntry[BabyBuddyData]
@@ -80,7 +74,7 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
         self.device_registry: dr.DeviceRegistry = dr.async_get(hass)
         self.child_ids: list[str] = []
         self._mqtt_unsubscribes: list[Callable] = []
-        self.metadata: dict[str, Any] = FALLBACK_METADATA
+        self.metadata: dict[str, Any] = {}
 
     async def _async_setup(self) -> None:
         """Set up the coordinator.
@@ -94,27 +88,15 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
         except ConnectError as error:
             raise ConfigEntryNotReady(error) from error
 
-        # Try dynamic discovery from Baby Buddy; fall back to hardcoded
+        # Require discovery v2 from Baby Buddy
         try:
             self.metadata = await self.client.async_get_discovery()
             LOGGER.info("Loaded entity metadata from Baby Buddy discovery endpoint")
-        except ClientResponseError as err:
-            if err.status == HTTPStatus.NOT_FOUND:
-                LOGGER.debug(
-                    "Baby Buddy discovery endpoint not available, "
-                    "using fallback metadata"
-                )
-            else:
-                LOGGER.warning(
-                    "Error fetching discovery metadata (%s), using fallback",
-                    err.status,
-                )
-            self.metadata = FALLBACK_METADATA
-        except (AsyncIOTimeoutError, ClientError):
-            LOGGER.warning(
-                "Could not reach discovery endpoint, using fallback metadata"
-            )
-            self.metadata = FALLBACK_METADATA
+        except (ClientResponseError, AsyncIOTimeoutError, ClientError) as err:
+            raise ConfigEntryNotReady(
+                "Baby Buddy discovery endpoint not available. "
+                "Ensure Baby Buddy is updated and reachable."
+            ) from err
 
         await self._async_set_children_from_db()
 
@@ -135,12 +117,19 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
             for m in self.metadata.get("sensors", [])
         ]
 
+    def get_select_options(self, key: str) -> list[str]:
+        """Return options for a select key from metadata."""
+        for s in self.metadata.get("selects", []):
+            if s["key"] == key:
+                return s.get("options", [])
+        return []
+
     @property
     def _slug_to_child_id(self) -> dict[str, int]:
         """Build a slug -> child_id mapping from current data."""
         if not self.data or not self.data[0]:
             return {}
-        return {child[ATTR_SLUG]: child[ATTR_ID] for child in self.data[0]}
+        return {child["slug"]: child[ATTR_ID] for child in self.data[0]}
 
     async def _setup_mqtt_subscriptions(self) -> None:
         """Subscribe to Baby Buddy MQTT state topics."""
@@ -171,7 +160,7 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
         # Subscribe after first REST poll so child slugs are available
         mqtt_topics = self.metadata.get("mqtt", {}).get("topics", {})
         for child in self.data[0]:
-            child_slug = child[ATTR_SLUG]
+            child_slug = child["slug"]
 
             # Subscribe to each data type topic
             for topic_key in mqtt_topics:
@@ -274,57 +263,66 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
         children_list: dict[str, Any] = {}
         child_data: dict[int, dict[str, dict[str, str]]] = {}
 
+        count_field = self.metadata["api"]["list_response_format"]["count_field"]
+        results_field = self.metadata["api"]["list_response_format"]["results_field"]
+        child_filter = self.metadata["api"]["child_filter_param"]
+        limit_param = self.metadata["api"]["limit_param"]
+        stats_endpoint = self.metadata["api"]["stats_endpoint"]
+
         try:
-            children_list = await self.client.async_get(ATTR_CHILDREN)
+            children_list = await self.client.async_get("children")
         except ClientResponseError as error:
             if error.status == HTTPStatus.FORBIDDEN:
                 raise ConfigEntryAuthFailed from error
         except (AsyncIOTimeoutError, ClientError) as error:
             raise UpdateFailed(error) from error
 
-        if children_list[ATTR_COUNT] < len(self.child_ids):
-            self.child_ids = [child[ATTR_ID] for child in children_list[ATTR_RESULTS]]
+        if children_list[count_field] < len(self.child_ids):
+            self.child_ids = [child[ATTR_ID] for child in children_list[results_field]]
             await self._async_remove_deleted_children()
-        if children_list[ATTR_COUNT] == 0:
+        if children_list[count_field] == 0:
             raise UpdateFailed("No children found. Please add at least one child.")
-        if children_list[ATTR_COUNT] > len(self.child_ids):
-            self.child_ids = [child[ATTR_ID] for child in children_list[ATTR_RESULTS]]
+        if children_list[count_field] > len(self.child_ids):
+            self.child_ids = [child[ATTR_ID] for child in children_list[results_field]]
 
-        for child in children_list[ATTR_RESULTS]:
+        for child in children_list[results_field]:
             child_data.setdefault(child[ATTR_ID], {})
             for sensor_meta in self.metadata.get("sensors", []):
                 endpoint_key = sensor_meta["key"]
                 endpoint_data: dict = {}
                 try:
                     endpoint_data = await self.client.async_get(
-                        endpoint_key, f"?child={child[ATTR_ID]}&limit=1"
+                        endpoint_key,
+                        f"?{child_filter}={child[ATTR_ID]}&{limit_param}=1",
                     )
                 except ClientResponseError as error:
                     LOGGER.debug(
                         "No %s found for %s %s. Skipping. error: %s",
                         endpoint_key,
-                        child[ATTR_FIRST_NAME],
-                        child[ATTR_LAST_NAME],
+                        child["first_name"],
+                        child["last_name"],
                         error,
                     )
                     continue
                 except (AsyncIOTimeoutError, ClientError) as error:
                     LOGGER.error(error)
                     continue
-                data: list[dict[str, str]] = endpoint_data[ATTR_RESULTS]
+                data: list[dict[str, str]] = endpoint_data[results_field]
                 child_data[child[ATTR_ID]][endpoint_key] = data[0] if data else {}
 
             # Fetch stats (medication overdue, daily aggregates)
             try:
-                stats = await self.client.async_get_stats(child[ATTR_SLUG])
+                stats = await self.client.async_get_stats(
+                    child["slug"], stats_endpoint
+                )
                 child_data[child[ATTR_ID]]["stats"] = stats
             except ClientResponseError as error:
                 LOGGER.debug(
                     "Could not fetch stats for %s: %s",
-                    child[ATTR_SLUG],
+                    child["slug"],
                     error,
                 )
             except (AsyncIOTimeoutError, ClientError) as error:
-                LOGGER.debug("Stats fetch error for %s: %s", child[ATTR_SLUG], error)
+                LOGGER.debug("Stats fetch error for %s: %s", child["slug"], error)
 
-        return (children_list[ATTR_RESULTS], child_data)
+        return (children_list[results_field], child_data)

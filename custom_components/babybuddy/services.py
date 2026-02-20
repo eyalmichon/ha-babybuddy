@@ -2,107 +2,35 @@
 
 from __future__ import annotations
 
-from typing import Any
+import functools
+from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
-
 from homeassistant.config_entries import ConfigEntryState
-from homeassistant.const import (
-    ATTR_DATE,
-    ATTR_ENTITY_ID,
-    ATTR_ID,
-    ATTR_NAME,
-    ATTR_TEMPERATURE,
-    ATTR_TIME,
-)
-from homeassistant.core import HomeAssistant, ServiceCall, callback
+from homeassistant.const import ATTR_ENTITY_ID, ATTR_ID
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
-from homeassistant.util import dt as dt_util, slugify
+from homeassistant.helpers.service import async_set_service_schema
+from homeassistant.util import dt as dt_util
+from homeassistant.util import slugify
 
 from .client import get_datetime_from_time
-from .const import (
-    ATTR_ACTION_ADD_BMI,
-    ATTR_ACTION_ADD_CHILD,
-    ATTR_ACTION_ADD_DIAPER_CHANGE,
-    ATTR_ACTION_ADD_FEEDING,
-    ATTR_ACTION_ADD_HEAD_CIRCUMFERENCE,
-    ATTR_ACTION_ADD_HEIGHT,
-    ATTR_ACTION_ADD_MEDICATION,
-    ATTR_ACTION_ADD_NOTE,
-    ATTR_ACTION_ADD_PUMPING,
-    ATTR_ACTION_ADD_SLEEP,
-    ATTR_ACTION_ADD_TEMPERATURE,
-    ATTR_ACTION_ADD_TUMMY_TIME,
-    ATTR_ACTION_ADD_WEIGHT,
-    ATTR_ACTION_DELETE_LAST_ENTRY,
-    ATTR_ACTION_GIVE_MEDICATION,
-    ATTR_AMOUNT,
-    ATTR_BIRTH_DATE,
-    ATTR_BMI,
-    ATTR_CHANGES,
-    ATTR_CHILD,
-    ATTR_CHILDREN,
-    ATTR_COLOR,
-    ATTR_END,
-    ATTR_FEEDINGS,
-    ATTR_FIRST_NAME,
-    ATTR_HEAD_CIRCUMFERENCE_DASH,
-    ATTR_HEAD_CIRCUMFERENCE_UNDERSCORE,
-    ATTR_HEIGHT,
-    ATTR_LAST_NAME,
-    ATTR_MEDICATION,
-    ATTR_METHOD,
-    ATTR_MILESTONE,
-    ATTR_NAP,
-    ATTR_NOTE,
-    ATTR_NOTES,
-    ATTR_PUMPING,
-    ATTR_SLEEP,
-    ATTR_SOLID,
-    ATTR_START,
-    ATTR_TAGS,
-    ATTR_TIMER,
-    ATTR_TIMERS,
-    ATTR_TUMMY_TIMES,
-    ATTR_TYPE,
-    ATTR_WEIGHT,
-    ATTR_WET,
-    DIAPER_COLORS,
-    DIAPER_TYPES,
-    DOMAIN,
-    ERR_TIMER_NOT_FOUND,
-    FEEDING_METHODS,
-    FEEDING_TYPES,
-    LOGGER,
-)
-from .coordinator import BabyBuddyConfigEntry, BabyBuddyCoordinator
+from .const import DOMAIN, ERR_TIMER_NOT_FOUND, LOGGER
 from .errors import ValidationError
 
-SERVICE_ADD_CHILD_SCHEMA: vol.Schema = vol.Schema(
-    {
-        vol.Required(ATTR_BIRTH_DATE, default=dt_util.now().date()): cv.date,
-        vol.Required(ATTR_FIRST_NAME): cv.string,
-        vol.Required(ATTR_LAST_NAME): cv.string,
-    }
-)
-COMMON_FIELDS: dict[vol.Required | vol.Optional, Any] = {
-    vol.Required(ATTR_CHILD): cv.entity_id,
-    vol.Optional(ATTR_NOTES): cv.string,
-    vol.Optional(ATTR_TAGS): vol.All(cv.ensure_list, [str]),
-}
-COMMON_FIELDS_TIMER: dict[vol.Required | vol.Optional | vol.Exclusive, Any] = {
-    vol.Required(ATTR_CHILD): cv.entity_id,
-    vol.Exclusive(ATTR_TIMER, group_of_exclusion="timer_or_start"): cv.boolean,
-    vol.Exclusive(ATTR_START, group_of_exclusion="timer_or_start"): vol.Any(
-        cv.datetime, cv.time
-    ),
-    vol.Optional(ATTR_END): vol.Any(cv.datetime, cv.time),
-    vol.Optional(ATTR_TAGS): vol.All(cv.ensure_list, [str]),
-}
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant, ServiceCall
+
+    from .coordinator import BabyBuddyCoordinator
+
+# ---------------------------------------------------------------------------
+# Helpers shared with the old code (kept with string literals)
+# ---------------------------------------------------------------------------
 
 
-async def __async_extract_entry_coordinator(call: ServiceCall) -> BabyBuddyCoordinator:
+async def _async_extract_entry_coordinator(
+    call: ServiceCall,
+) -> BabyBuddyCoordinator:
     """Extract coordinator from a service call."""
     entry = None
     for entry in call.hass.config_entries.async_loaded_entries(DOMAIN):
@@ -119,613 +47,374 @@ async def __async_extract_entry_coordinator(call: ServiceCall) -> BabyBuddyCoord
     return entry.runtime_data.coordinator
 
 
-async def __setup_service_data(
+def _build_entity_id_to_child_map(
+    coordinator: BabyBuddyCoordinator,
+) -> dict[str, int]:
+    """Build a mapping of known entity_id patterns to child IDs."""
+    mapping: dict[str, int] = {}
+    for child in coordinator.data[0]:
+        child_id = child[ATTR_ID]
+        device_slug = slugify(f'{child["first_name"]} {child["last_name"]}')
+        mapping[f"sensor.{device_slug}"] = child_id
+        mapping[f"switch.{device_slug}_timer"] = child_id
+    return mapping
+
+
+async def _setup_service_data(
     call: ServiceCall, coordinator: BabyBuddyCoordinator
 ) -> dict[str, Any]:
     """Extract data with child ID from a service call."""
     data = call.data.copy()
+    entity_map = _build_entity_id_to_child_map(coordinator)
 
-    if (
-        data.get(ATTR_CHILD)
-        and isinstance(data[ATTR_CHILD], str)
-        and data[ATTR_CHILD].startswith("switch.")
+    # Resolve child from explicit "child" entity_id field
+    if isinstance(data.get("child"), str) and data["child"].startswith(
+        ("sensor.", "switch.")
     ):
-        data[ATTR_CHILD] = [
-            child[ATTR_ID]
-            for child in coordinator.data[0]
-            if (
-                f"switch.{slugify(f'{child["first_name"]} {child["last_name"]} Timer')}"
-                == call.data[ATTR_CHILD]
-            )
-        ][0]
+        resolved = entity_map.get(data["child"])
+        if resolved is not None:
+            data["child"] = resolved
 
-    if (
-        data.get(ATTR_CHILD)
-        and isinstance(data[ATTR_CHILD], str)
-        and data[ATTR_CHILD].startswith("sensor.")
-    ):
-        data[ATTR_CHILD] = [
-            child[ATTR_ID]
-            for child in coordinator.data[0]
-            if (
-                f"sensor.{slugify(f'Baby {child["first_name"]} {child["last_name"]}')}"
-                == call.data[ATTR_CHILD]
-            )
-        ][0]
-
-    if call.data.get(ATTR_ENTITY_ID):
-        data[ATTR_CHILD] = [
-            child[ATTR_ID]
-            for child in coordinator.data[0]
-            if (
-                child["first_name"].lower()
-                == call.data[ATTR_ENTITY_ID].split(".")[1].split("_")[0]
-                and child["last_name"].lower()
-                == call.data[ATTR_ENTITY_ID].split(".")[1].split("_")[1]
-            )
-        ][0]
-
-    if not data.get(ATTR_CHILD):
-        data[ATTR_CHILD] = [
-            child[ATTR_ID]
-            for child in coordinator.data[0]
-            if (
-                f"sensor.{slugify(f'Baby {child["first_name"]} {child["last_name"]}')}"
-                == call.data[ATTR_CHILD]
-                or f"switch.{slugify(f'{child["first_name"]} {child["last_name"]} Timer')}"
-                == call.data[ATTR_CHILD]
-            )
-        ][0]
-
-    # might have a timer...
-    if data.get(ATTR_TIMER):
+    # Resolve child from HA target (entity_id)
+    if not isinstance(data.get("child"), int) and call.data.get(ATTR_ENTITY_ID):
+        target_id = call.data[ATTR_ENTITY_ID]
+        if isinstance(target_id, list):
+            target_id = target_id[0]
+        # Match target entity to a child by checking if entity_id starts with device slug
         for child in coordinator.data[0]:
-            if (
-                f"sensor.{slugify(f'Baby {child["first_name"]} {child["last_name"]}')}"
-                == call.data[ATTR_CHILD]
-                or f"switch.{slugify(f'{child["first_name"]} {child["last_name"]} Timer')}"
-                == call.data[ATTR_CHILD]
-            ):
-                # do we actually have a timer?
-                if child.get(ATTR_TIMERS):
-                    data[ATTR_TIMER] = [
-                        child[ATTR_TIMERS]["id"] for child in coordinator.data[0]
-                    ]
-            # if not, let's delete that key
-            else:
-                del data[ATTR_TIMER]
+            device_slug = slugify(f'{child["first_name"]} {child["last_name"]}')
+            entity_slug = target_id.split(".", 1)[1] if "." in target_id else target_id
+            if entity_slug == device_slug or entity_slug.startswith(f"{device_slug}_"):
+                data["child"] = child[ATTR_ID]
+                break
+
+    # Resolve timer if requested
+    if data.get("timer") and isinstance(data.get("child"), int):
+        child_id = data["child"]
+        timer_data = coordinator.data[1].get(child_id, {}).get("timers", {})
+        if timer_data:
+            data["timer"] = [timer_data[ATTR_ID]]
+        else:
+            del data["timer"]
 
     return data
 
 
-async def __set_common_fields(
+async def _set_common_fields(
     call: ServiceCall, data: dict[str, Any], coordinator: BabyBuddyCoordinator
 ) -> dict[str, Any]:
     """Set data common fields."""
 
-    if data.get(ATTR_TIMER):
-        child_id = data[ATTR_CHILD]
-        timer_data = coordinator.data[1].get(child_id, {}).get(ATTR_TIMERS, {})
+    if data.get("timer"):
+        child_id = data["child"]
+        timer_data = coordinator.data[1].get(child_id, {}).get("timers", {})
         if not timer_data:
             raise ValidationError(ERR_TIMER_NOT_FOUND)
-        data[ATTR_TIMER] = timer_data[ATTR_ID]
+        data["timer"] = timer_data[ATTR_ID]
     else:
-        data[ATTR_START] = get_datetime_from_time(
-            call.data.get(ATTR_START) or dt_util.now()
+        data["start"] = get_datetime_from_time(
+            call.data.get("start") or dt_util.now()
         )
-        data[ATTR_END] = get_datetime_from_time(
-            call.data.get(ATTR_END) or dt_util.now()
+        data["end"] = get_datetime_from_time(
+            call.data.get("end") or dt_util.now()
         )
 
-    if call.data.get(ATTR_TAGS):
-        data[ATTR_TAGS] = call.data.get(ATTR_TAGS)
+    if call.data.get("tags"):
+        data["tags"] = call.data.get("tags")
 
     return data
 
 
-async def async_add_child(call: ServiceCall) -> None:
-    """Add new child."""
-    coordinator = await __async_extract_entry_coordinator(call)
+# ---------------------------------------------------------------------------
+# Schema / description builders (driven by discovery v2 metadata)
+# ---------------------------------------------------------------------------
 
-    await coordinator.client.async_post(ATTR_CHILDREN, call.data)
-    await coordinator.async_request_refresh()
-
-
-async def async_add_bmi(call: ServiceCall) -> None:
-    """Add BMI entry."""
-    coordinator = await __async_extract_entry_coordinator(call)
-    data = await __setup_service_data(call, coordinator)
-
-    # date_now = dt_util.now().date()
-    date_time_now = get_datetime_from_time(dt_util.now())
-    await coordinator.client.async_post(ATTR_BMI, data, date_time_now)
-    await coordinator.async_request_refresh()
+_TYPE_TO_VALIDATOR: dict[str, Any] = {
+    "string": cv.string,
+    "float": cv.positive_float,
+    "int": cv.positive_int,
+    "boolean": cv.boolean,
+    "date": cv.date,
+    "datetime": vol.Any(cv.datetime, cv.time),
+    "time": cv.time,
+    "entity_id": cv.entity_id,
+    "string_list": vol.All(cv.ensure_list, [str]),
+}
 
 
-async def async_add_diaper_change(call: ServiceCall) -> None:
-    """Add diaper change entry."""
-    coordinator = await __async_extract_entry_coordinator(call)
-    data = await __setup_service_data(call, coordinator)
+def _get_select_options(select_key: str, metadata: dict) -> list[str]:
+    """Look up select options by key from metadata."""
+    for s in metadata.get("selects", []):
+        if s["key"] == select_key:
+            return s.get("options", [])
+    return []
 
-    if call.data.get(ATTR_TIME):
-        try:
-            date_time = get_datetime_from_time(call.data[ATTR_TIME])
-            data[ATTR_TIME] = date_time
-        except ValidationError as error:
-            LOGGER.error(error)
-            return
-    if call.data.get(ATTR_TYPE):
-        data[ATTR_WET] = (
-            call.data[ATTR_TYPE] == "Wet and Solid"
-            or call.data[ATTR_TYPE].lower() == ATTR_WET
+
+def _get_vol_validator(field_def: dict, metadata: dict) -> Any:  # noqa: ANN401
+    """Map a discovery field type to a voluptuous validator."""
+    ftype = field_def["type"]
+    if ftype == "select":
+        options = _get_select_options(field_def["select_key"], metadata)
+        return vol.In(options)
+    return _TYPE_TO_VALIDATOR.get(ftype, cv.string)
+
+
+_BASE_SELECTORS: dict[str, dict] = {
+    "boolean": {"boolean": {}},
+    "date": {"text": {}},
+    "datetime": {"time": {}},
+    "time": {"time": {}},
+    "string_list": {"text": {"multiple": True}},
+}
+
+
+def _get_selector(field_def: dict, metadata: dict) -> dict:
+    """Build an HA selector dict from a BB field definition."""
+    ftype = field_def["type"]
+
+    # Simple static selectors
+    if ftype in _BASE_SELECTORS:
+        return _BASE_SELECTORS[ftype]
+
+    # String: check multiline hint
+    if ftype == "string":
+        return {"text": {"multiline": True}} if field_def.get("multiline") else {"text": {}}
+
+    # Number types: merge BB selector_hints
+    if ftype in ("float", "int"):
+        return {"number": {"mode": "box", **field_def.get("selector_hints", {})}}
+
+    # Select: look up options from metadata
+    if ftype == "select":
+        return {"select": {"options": _get_select_options(field_def["select_key"], metadata)}}
+
+    # Entity: use BB-provided domain
+    if ftype == "entity_id":
+        return {"entity": {"integration": DOMAIN, "domain": field_def.get("entity_domain", "sensor")}}
+
+    return {"text": {}}
+
+
+def _build_schema(svc_def: dict, metadata: dict) -> vol.Schema:
+    """Build a vol.Schema for validation from a service definition."""
+    fields: dict = {}
+
+    if svc_def.get("common_fields"):
+        fields[vol.Optional("child")] = cv.entity_id
+        fields[vol.Optional("notes")] = cv.string
+        fields[vol.Optional("tags")] = vol.All(cv.ensure_list, [str])
+
+    if svc_def.get("uses_timer"):
+        fields[vol.Optional("child")] = cv.entity_id
+        fields[vol.Exclusive("timer", group_of_exclusion="timer_or_start")] = (
+            cv.boolean
         )
-        data[ATTR_SOLID] = (
-            call.data[ATTR_TYPE] == "Wet and Solid"
-            or call.data[ATTR_TYPE].lower() == ATTR_SOLID
-        )
-    if call.data.get(ATTR_COLOR):
-        data[ATTR_COLOR] = call.data[ATTR_COLOR].lower()
-    if call.data.get(ATTR_AMOUNT):
-        data[ATTR_AMOUNT] = call.data[ATTR_AMOUNT]
-    if call.data.get(ATTR_NOTES):
-        data[ATTR_NOTES] = call.data[ATTR_NOTES]
-    if call.data.get(ATTR_TAGS):
-        data[ATTR_TAGS] = call.data[ATTR_TAGS]
+        fields[
+            vol.Exclusive("start", group_of_exclusion="timer_or_start")
+        ] = vol.Any(cv.datetime, cv.time)
+        fields[vol.Optional("end")] = vol.Any(cv.datetime, cv.time)
+        fields[vol.Optional("tags")] = vol.All(cv.ensure_list, [str])
 
-    date_time_now = get_datetime_from_time(dt_util.now())
-    await coordinator.client.async_post(ATTR_CHANGES, data, date_time_now)
-    await coordinator.async_request_refresh()
+    for fname, fdef in svc_def.get("fields", {}).items():
+        # Skip fields already added by common_fields / uses_timer
+        already = {k.schema if hasattr(k, "schema") else k for k in fields}
+        if fname in already:
+            continue
 
+        validator = _get_vol_validator(fdef, metadata)
+        # entity_id fields can be resolved from HA target, so always optional
+        if fdef.get("required") and fdef["type"] != "entity_id":
+            fields[vol.Required(fname)] = validator
+        else:
+            fields[vol.Optional(fname)] = validator
 
-async def async_add_head_circumference(call: ServiceCall) -> None:
-    """Add head circumference entry."""
-    coordinator = await __async_extract_entry_coordinator(call)
-    data = await __setup_service_data(call, coordinator)
+    # Accept entity_id from HA target resolution
+    fields[vol.Optional(ATTR_ENTITY_ID)] = vol.Any(cv.entity_id, [cv.entity_id])
 
-    if call.data.get(ATTR_DATE):
-        data[ATTR_DATE] = call.data.get(ATTR_DATE)
-    if call.data.get(ATTR_NOTES):
-        data[ATTR_NOTES] = call.data.get(ATTR_NOTES)
-    if call.data.get(ATTR_TAGS):
-        data[ATTR_TAGS] = call.data.get(ATTR_TAGS)
-
-    # date_now = dt_util.now().date()
-    date_time_now = get_datetime_from_time(dt_util.now())
-    await coordinator.client.async_post(
-        ATTR_HEAD_CIRCUMFERENCE_DASH, data, date_time_now
-    )
-    await coordinator.async_request_refresh()
+    return vol.Schema(fields)
 
 
-async def async_add_height(call: ServiceCall) -> None:
-    """Add height entry."""
-    coordinator = await __async_extract_entry_coordinator(call)
-    data = await __setup_service_data(call, coordinator)
+def _build_service_description(svc_def: dict, metadata: dict) -> dict:
+    """Build a service description dict for async_set_service_schema."""
+    fields: dict = {}
 
-    if call.data.get(ATTR_DATE):
-        data[ATTR_DATE] = call.data.get(ATTR_DATE)
-    if call.data.get(ATTR_NOTES):
-        data[ATTR_NOTES] = call.data.get(ATTR_NOTES)
-    if call.data.get(ATTR_TAGS):
-        data[ATTR_TAGS] = call.data.get(ATTR_TAGS)
-
-    # date_now = dt_util.now().date()
-    date_time_now = get_datetime_from_time(dt_util.now())
-    await coordinator.client.async_post(ATTR_HEIGHT, data, date_time_now)
-    await coordinator.async_request_refresh()
-
-
-async def async_add_note(call: ServiceCall) -> None:
-    """Add note entry."""
-    coordinator = await __async_extract_entry_coordinator(call)
-    data = await __setup_service_data(call, coordinator)
-
-    if call.data.get(ATTR_TIME):
-        try:
-            date_time = get_datetime_from_time(call.data.get(ATTR_TIME))
-            data[ATTR_TIME] = date_time
-        except ValidationError as error:
-            LOGGER.error(error)
-            return
-    if call.data.get(ATTR_TAGS):
-        data[ATTR_TAGS] = call.data.get(ATTR_TAGS)
-
-    date_time_now = get_datetime_from_time(dt_util.now())
-    await coordinator.client.async_post(ATTR_NOTES, data, date_time_now)
-    await coordinator.async_request_refresh()
-
-
-async def async_add_temperature(call: ServiceCall) -> None:
-    """Add a temperature entry."""
-    coordinator = await __async_extract_entry_coordinator(call)
-    data = await __setup_service_data(call, coordinator)
-
-    if call.data.get(ATTR_TIME):
-        try:
-            date_time = get_datetime_from_time(call.data.get(ATTR_TIME))
-            data[ATTR_TIME] = date_time
-        except ValidationError as error:
-            LOGGER.error(error)
-            return
-    if call.data.get(ATTR_NOTES):
-        data[ATTR_NOTES] = call.data.get(ATTR_NOTES)
-    if call.data.get(ATTR_TAGS):
-        data[ATTR_TAGS] = call.data.get(ATTR_TAGS)
-
-    date_time_now = get_datetime_from_time(dt_util.now())
-    await coordinator.client.async_post(ATTR_TEMPERATURE, data, date_time_now)
-    await coordinator.async_request_refresh()
-
-
-async def async_add_weight(call: ServiceCall) -> None:
-    """Add weight entry."""
-    coordinator = await __async_extract_entry_coordinator(call)
-    data = await __setup_service_data(call, coordinator)
-
-    if call.data.get(ATTR_DATE):
-        data[ATTR_DATE] = call.data.get(ATTR_DATE)
-    if call.data.get(ATTR_NOTES):
-        data[ATTR_NOTES] = call.data.get(ATTR_NOTES)
-    if call.data.get(ATTR_TAGS):
-        data[ATTR_TAGS] = call.data.get(ATTR_TAGS)
-
-    # date_now = dt_util.now().date()
-    date_time_now = get_datetime_from_time(dt_util.now())
-    await coordinator.client.async_post(ATTR_WEIGHT, data, date_time_now)
-    await coordinator.async_request_refresh()
-
-
-async def async_add_medication(call: ServiceCall) -> None:
-    """Add a medication entry."""
-    coordinator = await __async_extract_entry_coordinator(call)
-    data = await __setup_service_data(call, coordinator)
-
-    if call.data.get(ATTR_TIME):
-        try:
-            date_time = get_datetime_from_time(call.data[ATTR_TIME])
-            data[ATTR_TIME] = date_time
-        except ValidationError as error:
-            LOGGER.error(error)
-            return
-    if call.data.get(ATTR_NOTES):
-        data[ATTR_NOTES] = call.data.get(ATTR_NOTES)
-    if call.data.get(ATTR_TAGS):
-        data[ATTR_TAGS] = call.data.get(ATTR_TAGS)
-
-    date_time_now = get_datetime_from_time(dt_util.now())
-    await coordinator.client.async_post(ATTR_MEDICATION, data, date_time_now)
-    await coordinator.async_request_refresh()
-
-
-async def async_give_medication(call: ServiceCall) -> None:
-    """Give a scheduled medication (uses medication schedule ID)."""
-    coordinator = await __async_extract_entry_coordinator(call)
-    data = await __setup_service_data(call, coordinator)
-
-    data["medication_schedule"] = call.data["schedule_id"]
-    if call.data.get(ATTR_NAME):
-        data[ATTR_NAME] = call.data[ATTR_NAME]
-    if call.data.get(ATTR_AMOUNT):
-        data[ATTR_AMOUNT] = call.data[ATTR_AMOUNT]
-    if call.data.get("amount_unit"):
-        data["amount_unit"] = call.data["amount_unit"]
-
-    await coordinator.client.async_post(ATTR_MEDICATION, data)
-    await coordinator.async_request_refresh()
-
-
-async def async_delete_last_entry(call: ServiceCall) -> None:
-    """Delete last data entry."""
-    coordinator = await __async_extract_entry_coordinator(call)
-    data = await __setup_service_data(call, coordinator)
-    entity = call.hass.states.get(call.data.get(ATTR_ENTITY_ID))
-    key = call.data[ATTR_ENTITY_ID].split(".")[1].split("_")[3]
-
-    await coordinator.client.async_delete(key, entity.attributes.get(ATTR_ID))
-    await coordinator.async_request_refresh()
-
-
-async def async_start_timer(call: ServiceCall) -> None:
-    """Start a new timer for child."""
-    coordinator = await __async_extract_entry_coordinator(call)
-    data = await __setup_service_data(call, coordinator)
-
-    try:
-        data[ATTR_START] = get_datetime_from_time(
-            call.data.get(ATTR_START) or dt_util.now()
-        )
-    except ValidationError as error:
-        LOGGER.error(error)
-        return
-    if call.data.get(ATTR_NAME):
-        data[ATTR_NAME] = call.data.get(ATTR_NAME)
-
-    await coordinator.client.async_post(ATTR_TIMERS, data)
-    await coordinator.async_request_refresh()
-
-
-async def async_add_feeding(call: ServiceCall) -> None:
-    """Add a feeding entry."""
-    coordinator = await __async_extract_entry_coordinator(call)
-    data = await __setup_service_data(call, coordinator)
-
-    try:
-        data = await __set_common_fields(call, data, coordinator)
-    except ValidationError as error:
-        LOGGER.error(error)
-        return
-
-    data.update(
-        {
-            ATTR_TYPE: data[ATTR_TYPE].lower(),
-            ATTR_METHOD: data[ATTR_METHOD].lower(),
+    if svc_def.get("common_fields"):
+        fields["child"] = {
+            "name": "Child",
+            "required": True,
+            "selector": {
+                "entity": {
+                    "integration": DOMAIN,
+                    "domain": "sensor",
+                    "device_class": "babybuddy_child",
+                }
+            },
         }
-    )
+        fields["notes"] = {
+            "name": "Notes",
+            "selector": {"text": {"multiline": True}},
+        }
+        fields["tags"] = {
+            "name": "Tags",
+            "selector": {"text": {"multiple": True}},
+        }
 
-    if call.data.get(ATTR_AMOUNT):
-        data[ATTR_AMOUNT] = call.data.get(ATTR_AMOUNT)
-    if call.data.get(ATTR_NOTES):
-        data[ATTR_NOTES] = call.data.get(ATTR_NOTES)
+    if svc_def.get("uses_timer"):
+        fields["child"] = {
+            "name": "Child",
+            "required": True,
+            "selector": {"entity": {"integration": DOMAIN, "domain": "switch"}},
+        }
+        fields["timer"] = {
+            "name": "Use timer",
+            "selector": {"boolean": {}},
+        }
+        fields["start"] = {
+            "name": "Start time",
+            "selector": {"time": {}},
+        }
+        fields["end"] = {
+            "name": "End time",
+            "selector": {"time": {}},
+        }
+        fields["tags"] = {
+            "name": "Tags",
+            "selector": {"text": {"multiple": True}},
+        }
 
-    await coordinator.client.async_post(ATTR_FEEDINGS, data)
-    await coordinator.async_request_refresh()
+    for fname, fdef in svc_def.get("fields", {}).items():
+        if fname in fields:
+            continue
+        field_desc: dict[str, Any] = {
+            "name": fdef["name"],
+            "selector": _get_selector(fdef, metadata),
+        }
+        if fdef.get("description"):
+            field_desc["description"] = fdef["description"]
+        if fdef.get("required"):
+            field_desc["required"] = True
+        fields[fname] = field_desc
+
+    return {
+        "name": svc_def["name"],
+        "description": svc_def["description"],
+        "fields": fields,
+    }
 
 
-async def async_add_pumping(call: ServiceCall) -> None:
-    """Add a pumping entry."""
-    coordinator = await __async_extract_entry_coordinator(call)
-    data = await __setup_service_data(call, coordinator)
+# ---------------------------------------------------------------------------
+# Transform applier
+# ---------------------------------------------------------------------------
 
-    try:
-        data = await __set_common_fields(call, data, coordinator)
-    except ValidationError as error:
-        LOGGER.error(error)
+
+def _apply_transforms(
+    data: dict[str, Any], svc_def: dict, metadata: dict
+) -> None:
+    """Apply transforms defined in the service definition to data in-place."""
+    transforms_map = metadata.get("transforms", {})
+
+    for field_name, transform_key in svc_def.get("transforms", {}).items():
+        if field_name not in data or data[field_name] is None:
+            continue
+
+        transform = transforms_map.get(transform_key)
+        if not transform:
+            continue
+
+        if transform["type"] == "mapping":
+            value = data[field_name]
+            mapping = transform.get("mapping", {})
+            mapped = mapping.get(value)
+            if mapped:
+                data.update(mapped)
+                if transform.get("removes_field"):
+                    del data[field_name]
+
+        elif transform["type"] == "value_transform":
+            if transform.get("operation") == "lowercase":
+                data[field_name] = data[field_name].lower()
+
+
+# ---------------------------------------------------------------------------
+# Generic service handler
+# ---------------------------------------------------------------------------
+
+
+async def _async_handle_service(
+    call: ServiceCall, svc_def: dict, metadata: dict
+) -> None:
+    """Generic handler for all Baby Buddy services."""
+    coordinator = await _async_extract_entry_coordinator(call)
+
+    # Special case: DELETE method (delete_last_entry)
+    if svc_def.get("method") == "DELETE":
+        entity = call.hass.states.get(call.data.get(ATTR_ENTITY_ID))
+        key = call.data[ATTR_ENTITY_ID].split(".")[1].split("_")[3]
+        await coordinator.client.async_delete(key, entity.attributes.get(ATTR_ID))
+        await coordinator.async_request_refresh()
         return
 
-    data[ATTR_AMOUNT] = call.data.get(ATTR_AMOUNT)
+    data = await _setup_service_data(call, coordinator)
 
-    if call.data.get(ATTR_NOTES):
-        data[ATTR_NOTES] = call.data.get(ATTR_NOTES)
+    # Timer-based services need common fields
+    if svc_def.get("uses_timer"):
+        try:
+            data = await _set_common_fields(call, data, coordinator)
+        except ValidationError as error:
+            LOGGER.error(error)
+            return
 
-    await coordinator.client.async_post(ATTR_PUMPING, data)
+    # Apply datetime conversions for datetime-type fields
+    for fname, fdef in svc_def.get("fields", {}).items():
+        if fdef["type"] == "datetime" and fname in data and data[fname] is not None:
+            try:
+                data[fname] = get_datetime_from_time(data[fname])
+            except ValidationError as error:
+                LOGGER.error(error)
+                return
+
+    # Apply transforms (e.g. diaper type -> wet/solid booleans, lowercase)
+    _apply_transforms(data, svc_def, metadata)
+
+    # Handle extra_data mappings (e.g. schedule_id -> medication_schedule)
+    for target_field, mapping in svc_def.get("extra_data", {}).items():
+        source_field = mapping.get("from_field")
+        if source_field and source_field in data:
+            data[target_field] = data.pop(source_field)
+
+    # POST to the endpoint
+    date_time_now = get_datetime_from_time(dt_util.now())
+    await coordinator.client.async_post(svc_def["endpoint"], data, date_time_now)
     await coordinator.async_request_refresh()
 
 
-async def async_add_sleep(call: ServiceCall) -> None:
-    """Add a sleep entry."""
-    coordinator = await __async_extract_entry_coordinator(call)
-    data = await __setup_service_data(call, coordinator)
-
-    try:
-        data = await __set_common_fields(call, data, coordinator)
-    except ValidationError as error:
-        LOGGER.error(error)
-        return
-
-    if call.data.get(ATTR_NAP):
-        data[ATTR_NAP] = call.data.get(ATTR_NAP)
-    if call.data.get(ATTR_NOTES):
-        data[ATTR_NOTES] = call.data.get(ATTR_NOTES)
-
-    await coordinator.client.async_post(ATTR_SLEEP, data)
-    await coordinator.async_request_refresh()
+# ---------------------------------------------------------------------------
+# Service registration (called from __init__.py async_setup_entry)
+# ---------------------------------------------------------------------------
 
 
-async def async_add_tummy_time(call: ServiceCall) -> None:
-    """Add a tummy time entry."""
-    coordinator = await __async_extract_entry_coordinator(call)
-    data = await __setup_service_data(call, coordinator)
+async def async_setup_services(
+    hass: HomeAssistant, coordinator: BabyBuddyCoordinator
+) -> None:
+    """Register all services dynamically from discovery metadata."""
+    metadata = coordinator.metadata
 
-    try:
-        data = await __set_common_fields(call, data, coordinator)
-    except ValidationError as error:
-        LOGGER.error(error)
-        return
+    for svc in metadata.get("services", []):
+        key = svc["key"]
+        if hass.services.has_service(DOMAIN, key):
+            continue
 
-    if call.data.get(ATTR_MILESTONE):
-        data[ATTR_MILESTONE] = call.data.get(ATTR_MILESTONE)
+        # Build validation schema and register handler
+        schema = _build_schema(svc, metadata)
+        hass.services.async_register(
+            DOMAIN,
+            key,
+            functools.partial(_async_handle_service, svc_def=svc, metadata=metadata),
+            schema=schema,
+        )
 
-    await coordinator.client.async_post(ATTR_TUMMY_TIMES, data)
-    await coordinator.async_request_refresh()
+        # Build and set UI description programmatically
+        description = _build_service_description(svc, metadata)
+        async_set_service_schema(hass, DOMAIN, key, description)
 
-
-@callback
-def async_setup_services(hass: HomeAssistant) -> None:
-    """Set up the services for the babybuddy integration."""
-
-    hass.services.async_register(
-        DOMAIN,
-        ATTR_ACTION_ADD_CHILD,
-        async_add_child,
-        schema=SERVICE_ADD_CHILD_SCHEMA,
-    )
-    hass.services.async_register(
-        DOMAIN,
-        ATTR_ACTION_ADD_BMI,
-        async_add_bmi,
-        vol.Schema(
-            {
-                **COMMON_FIELDS,
-                vol.Required(ATTR_BMI): cv.positive_float,
-                vol.Optional(ATTR_DATE): cv.date,
-            }
-        ),
-    )
-    hass.services.async_register(
-        DOMAIN,
-        ATTR_ACTION_ADD_DIAPER_CHANGE,
-        async_add_diaper_change,
-        vol.Schema(
-            {
-                **COMMON_FIELDS,
-                vol.Optional(ATTR_TIME): vol.Any(cv.datetime, cv.time),
-                vol.Optional(ATTR_TYPE): vol.In(DIAPER_TYPES),
-                vol.Optional(ATTR_COLOR): vol.In(DIAPER_COLORS),
-                vol.Optional(ATTR_AMOUNT): cv.positive_float,
-            }
-        ),
-    )
-    hass.services.async_register(
-        DOMAIN,
-        ATTR_ACTION_ADD_HEAD_CIRCUMFERENCE,
-        async_add_head_circumference,
-        vol.Schema(
-            {
-                **COMMON_FIELDS,
-                vol.Required(ATTR_HEAD_CIRCUMFERENCE_UNDERSCORE): cv.positive_float,
-                vol.Optional(ATTR_DATE): cv.date,
-            }
-        ),
-    )
-    hass.services.async_register(
-        DOMAIN,
-        ATTR_ACTION_ADD_HEIGHT,
-        async_add_height,
-        vol.Schema(
-            {
-                **COMMON_FIELDS,
-                vol.Required(ATTR_HEIGHT): cv.positive_float,
-                vol.Optional(ATTR_DATE): cv.date,
-            }
-        ),
-    )
-    hass.services.async_register(
-        DOMAIN,
-        ATTR_ACTION_ADD_NOTE,
-        async_add_note,
-        vol.Schema(
-            {
-                vol.Required(ATTR_CHILD): cv.entity_id,
-                vol.Required(ATTR_NOTE): cv.string,
-                vol.Optional(ATTR_TIME): vol.Any(cv.datetime, cv.time),
-                vol.Optional(ATTR_TAGS): vol.All(cv.ensure_list, [str]),
-            }
-        ),
-    )
-    hass.services.async_register(
-        DOMAIN,
-        ATTR_ACTION_ADD_TEMPERATURE,
-        async_add_temperature,
-        vol.Schema(
-            {
-                **COMMON_FIELDS,
-                vol.Required(ATTR_TEMPERATURE): cv.positive_float,
-                vol.Optional(ATTR_TIME): vol.Any(cv.datetime, cv.time),
-            }
-        ),
-    )
-    hass.services.async_register(
-        DOMAIN,
-        ATTR_ACTION_ADD_WEIGHT,
-        async_add_weight,
-        vol.Schema(
-            {
-                **COMMON_FIELDS,
-                vol.Required(ATTR_WEIGHT): cv.positive_float,
-                vol.Optional(ATTR_DATE): cv.date,
-            }
-        ),
-    )
-    hass.services.async_register(
-        DOMAIN,
-        ATTR_ACTION_ADD_MEDICATION,
-        async_add_medication,
-        vol.Schema(
-            {
-                **COMMON_FIELDS,
-                vol.Required(ATTR_NAME): cv.string,
-                vol.Optional(ATTR_AMOUNT): cv.positive_float,
-                vol.Optional("amount_unit"): vol.In(
-                    ["ml", "oz", "mg", "g", "drops", "tsp", "tbsp"]
-                ),
-                vol.Optional(ATTR_TIME): vol.Any(cv.datetime, cv.time),
-            }
-        ),
-    )
-    hass.services.async_register(
-        DOMAIN,
-        ATTR_ACTION_GIVE_MEDICATION,
-        async_give_medication,
-        vol.Schema(
-            {
-                vol.Required(ATTR_CHILD): cv.entity_id,
-                vol.Required("schedule_id"): cv.positive_int,
-                vol.Optional(ATTR_NAME): cv.string,
-                vol.Optional(ATTR_AMOUNT): cv.positive_float,
-                vol.Optional("amount_unit"): vol.In(
-                    ["ml", "oz", "mg", "g", "drops", "tsp", "tbsp"]
-                ),
-            }
-        ),
-    )
-    hass.services.async_register(
-        DOMAIN,
-        ATTR_ACTION_DELETE_LAST_ENTRY,
-        async_delete_last_entry,
-        vol.Schema(
-            {
-                vol.Required("entity_id"): cv.entity_id,
-            }
-        ),
-    )
-    hass.services.async_register(
-        DOMAIN,
-        "start_timer",
-        async_start_timer,
-        vol.Schema(
-            {
-                vol.Optional(ATTR_START): vol.Any(cv.datetime, cv.time),
-                vol.Optional(ATTR_NAME): cv.string,
-            }
-        ),
-    )
-
-    hass.services.async_register(
-        DOMAIN,
-        ATTR_ACTION_ADD_FEEDING,
-        async_add_feeding,
-        vol.Schema(
-            {
-                **COMMON_FIELDS,
-                vol.Required(ATTR_TYPE): vol.In(FEEDING_TYPES),
-                vol.Required(ATTR_METHOD): vol.In(FEEDING_METHODS),
-                vol.Optional(ATTR_AMOUNT): cv.positive_float,
-                vol.Optional(ATTR_NOTES): cv.string,
-            }
-        ),
-    )
-    hass.services.async_register(
-        DOMAIN,
-        ATTR_ACTION_ADD_PUMPING,
-        async_add_pumping,
-        vol.Schema(
-            {
-                **COMMON_FIELDS,
-                vol.Required(ATTR_AMOUNT): cv.positive_float,
-                vol.Optional(ATTR_NOTES): cv.string,
-            }
-        ),
-    )
-    hass.services.async_register(
-        DOMAIN,
-        ATTR_ACTION_ADD_SLEEP,
-        async_add_sleep,
-        vol.Schema(
-            {
-                **COMMON_FIELDS,
-                vol.Optional(ATTR_NAP): cv.boolean,
-                vol.Optional(ATTR_NOTES): cv.string,
-            }
-        ),
-    )
-    hass.services.async_register(
-        DOMAIN,
-        ATTR_ACTION_ADD_TUMMY_TIME,
-        async_add_tummy_time,
-        vol.Schema(
-            {
-                **COMMON_FIELDS,
-                vol.Optional(ATTR_MILESTONE): cv.string,
-            }
-        ),
-    )
+    LOGGER.info("Registered %d Baby Buddy services", len(metadata.get("services", [])))

@@ -1,6 +1,5 @@
-"""Test babybuddy sensors."""
+"""Test babybuddy sensors (metadata-aware)."""
 
-import pytest
 from homeassistant.components.sensor.const import (
     ATTR_STATE_CLASS,
     SensorDeviceClass,
@@ -16,28 +15,13 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
-from custom_components.babybuddy.const import (
-    ATTR_ACTION_ADD_BMI,
-    ATTR_ACTION_ADD_DIAPER_CHANGE,
-    ATTR_ACTION_ADD_HEAD_CIRCUMFERENCE,
-    ATTR_ACTION_ADD_HEIGHT,
-    ATTR_ACTION_ADD_NOTE,
-    ATTR_ACTION_ADD_TEMPERATURE,
-    ATTR_ACTION_ADD_WEIGHT,
-    ATTR_BMI,
-    ATTR_HEAD_CIRCUMFERENCE_UNDERSCORE,
-    ATTR_HEIGHT,
-    ATTR_NOTE,
-    ATTR_NOTES,
-    ATTR_TAGS,
-    ATTR_WEIGHT,
-    DOMAIN,
-)
+from custom_components.babybuddy.const import DOMAIN
+from custom_components.babybuddy.coordinator import BabyBuddyCoordinator
 
+from .conftest import child_entity_id, find_sensor_meta, sensor_entity_id
 from .const import (
-    MOCK_BABY_NAME,
-    MOCK_BABY_SENSOR_ID,
     MOCK_SERVICE_ADD_BMI_SCHEMA,
+    MOCK_SERVICE_ADD_CHILD_SCHEMA,
     MOCK_SERVICE_ADD_DIAPER_CHANGE,
     MOCK_SERVICE_ADD_HEAD_CIRCUMFERENCE,
     MOCK_SERVICE_ADD_HEIGHT,
@@ -46,182 +30,215 @@ from .const import (
     MOCK_SERVICE_ADD_WEIGHT,
 )
 
+_CHILD = MOCK_SERVICE_ADD_CHILD_SCHEMA
 
-@pytest.mark.usefixtures("setup_baby_buddy_entry_live")
+_DEVICE_CLASS_MAP = {
+    "timestamp": SensorDeviceClass.TIMESTAMP,
+    "temperature": SensorDeviceClass.TEMPERATURE,
+}
+_STATE_CLASS_MAP = {
+    "measurement": SensorStateClass.MEASUREMENT,
+    "total": SensorStateClass.TOTAL,
+    "total_increasing": SensorStateClass.TOTAL_INCREASING,
+}
+
+
+def _assert_sensor_meta(state, meta: dict) -> None:
+    """Assert icon, device_class, and state_class match metadata."""
+    assert state.attributes[ATTR_ICON] == meta["icon"]
+
+    dc = meta.get("device_class")
+    if dc and dc in _DEVICE_CLASS_MAP:
+        assert state.attributes[ATTR_DEVICE_CLASS] == _DEVICE_CLASS_MAP[dc]
+
+    sc = meta.get("state_class")
+    if sc and sc in _STATE_CLASS_MAP:
+        assert state.attributes[ATTR_STATE_CLASS] == _STATE_CLASS_MAP[sc]
+
+
 async def test_service_add_bmi(
     hass: HomeAssistant,
+    bb_coordinator: BabyBuddyCoordinator,
 ) -> None:
     """Test the "add bmi" service call."""
+    meta = bb_coordinator.metadata
+    smeta = find_sensor_meta(meta, "bmi")
+    baby_eid = child_entity_id(meta, _CHILD)
+    eid = sensor_entity_id(meta, _CHILD, "bmi")
 
-    baby_entity_id = MOCK_BABY_SENSOR_ID
-    entity_id = f"sensor.{MOCK_BABY_NAME}_last_bmi"
     await hass.services.async_call(
         DOMAIN,
-        ATTR_ACTION_ADD_BMI,
+        "add_bmi",
         MOCK_SERVICE_ADD_BMI_SCHEMA,
-        target={ATTR_ENTITY_ID: baby_entity_id},
+        target={ATTR_ENTITY_ID: baby_eid},
         blocking=True,
     )
-    state = hass.states.get(entity_id)
+    state = hass.states.get(eid)
 
     assert state
-    assert state.attributes[ATTR_ICON] == "mdi:scale-bathroom"
-    assert state.attributes[ATTR_NOTES] == MOCK_SERVICE_ADD_BMI_SCHEMA[ATTR_NOTES]
-    assert state.attributes[ATTR_STATE_CLASS] == SensorStateClass.MEASUREMENT
-    assert state.attributes[ATTR_TAGS] == MOCK_SERVICE_ADD_BMI_SCHEMA[ATTR_TAGS]
-    assert state.state == str(MOCK_SERVICE_ADD_BMI_SCHEMA[ATTR_BMI])
+    _assert_sensor_meta(state, smeta)
+    assert state.attributes["notes"] == MOCK_SERVICE_ADD_BMI_SCHEMA["notes"]
+    assert state.attributes["tags"] == MOCK_SERVICE_ADD_BMI_SCHEMA["tags"]
+    assert state.state == str(MOCK_SERVICE_ADD_BMI_SCHEMA["bmi"])
 
 
-@pytest.mark.usefixtures("setup_baby_buddy_entry_live")
 async def test_service_add_diaper_change(
     hass: HomeAssistant,
+    bb_coordinator: BabyBuddyCoordinator,
 ) -> None:
     """Test the "add diaper change" service call."""
+    meta = bb_coordinator.metadata
+    smeta = find_sensor_meta(meta, "changes")
+    baby_eid = child_entity_id(meta, _CHILD)
+    eid = sensor_entity_id(meta, _CHILD, "changes")
 
-    baby_entity_id = MOCK_BABY_SENSOR_ID
-    entity_id = f"sensor.{MOCK_BABY_NAME}_last_change"
     await hass.services.async_call(
         DOMAIN,
-        ATTR_ACTION_ADD_DIAPER_CHANGE,
+        "add_diaper_change",
         MOCK_SERVICE_ADD_DIAPER_CHANGE,
-        target={ATTR_ENTITY_ID: baby_entity_id},
+        target={ATTR_ENTITY_ID: baby_eid},
         blocking=True,
     )
-    state = hass.states.get(entity_id)
+    state = hass.states.get(eid)
 
     assert state
-    assert state.attributes[ATTR_DEVICE_CLASS] == SensorDeviceClass.TIMESTAMP
-    assert state.attributes[ATTR_ICON] == "mdi:paper-roll-outline"
-    assert state.attributes[ATTR_NOTES] == MOCK_SERVICE_ADD_DIAPER_CHANGE[ATTR_NOTES]
-    assert state.attributes[ATTR_TAGS] == MOCK_SERVICE_ADD_DIAPER_CHANGE[ATTR_TAGS]
+    _assert_sensor_meta(state, smeta)
+    assert state.attributes["notes"] == MOCK_SERVICE_ADD_DIAPER_CHANGE["notes"]
+    assert state.attributes["tags"] == MOCK_SERVICE_ADD_DIAPER_CHANGE["tags"]
     assert (
         dt_util.parse_datetime(state.state) == MOCK_SERVICE_ADD_DIAPER_CHANGE[ATTR_TIME]
     )
 
 
-@pytest.mark.usefixtures("setup_baby_buddy_entry_live")
 async def test_service_add_head_circumference(
     hass: HomeAssistant,
+    bb_coordinator: BabyBuddyCoordinator,
 ) -> None:
     """Test the "add head circumference" service call."""
+    meta = bb_coordinator.metadata
+    smeta = find_sensor_meta(meta, "head-circumference")
+    baby_eid = child_entity_id(meta, _CHILD)
+    eid = sensor_entity_id(meta, _CHILD, "head-circumference")
 
-    baby_entity_id = MOCK_BABY_SENSOR_ID
-    entity_id = f"sensor.{MOCK_BABY_NAME}_last_head_circumference"
     await hass.services.async_call(
         DOMAIN,
-        ATTR_ACTION_ADD_HEAD_CIRCUMFERENCE,
+        "add_head_circumference",
         MOCK_SERVICE_ADD_HEAD_CIRCUMFERENCE,
-        target={ATTR_ENTITY_ID: baby_entity_id},
+        target={ATTR_ENTITY_ID: baby_eid},
         blocking=True,
     )
-    state = hass.states.get(entity_id)
+    state = hass.states.get(eid)
 
     assert state
-    assert state.attributes[ATTR_ICON] == "mdi:head-outline"
+    _assert_sensor_meta(state, smeta)
     assert (
-        state.attributes[ATTR_NOTES] == MOCK_SERVICE_ADD_HEAD_CIRCUMFERENCE[ATTR_NOTES]
+        state.attributes["notes"] == MOCK_SERVICE_ADD_HEAD_CIRCUMFERENCE["notes"]
     )
-    assert state.attributes[ATTR_STATE_CLASS] == SensorStateClass.MEASUREMENT
-    assert state.attributes[ATTR_TAGS] == MOCK_SERVICE_ADD_HEAD_CIRCUMFERENCE[ATTR_TAGS]
+    assert state.attributes["tags"] == MOCK_SERVICE_ADD_HEAD_CIRCUMFERENCE["tags"]
     assert state.state == str(
-        MOCK_SERVICE_ADD_HEAD_CIRCUMFERENCE[ATTR_HEAD_CIRCUMFERENCE_UNDERSCORE]
+        MOCK_SERVICE_ADD_HEAD_CIRCUMFERENCE["head_circumference"]
     )
 
 
-@pytest.mark.usefixtures("setup_baby_buddy_entry_live")
 async def test_service_add_height(
     hass: HomeAssistant,
+    bb_coordinator: BabyBuddyCoordinator,
 ) -> None:
     """Test the "add height" service call."""
+    meta = bb_coordinator.metadata
+    smeta = find_sensor_meta(meta, "height")
+    baby_eid = child_entity_id(meta, _CHILD)
+    eid = sensor_entity_id(meta, _CHILD, "height")
 
-    baby_entity_id = MOCK_BABY_SENSOR_ID
-    entity_id = f"sensor.{MOCK_BABY_NAME}_last_height"
     await hass.services.async_call(
         DOMAIN,
-        ATTR_ACTION_ADD_HEIGHT,
+        "add_height",
         MOCK_SERVICE_ADD_HEIGHT,
-        target={ATTR_ENTITY_ID: baby_entity_id},
+        target={ATTR_ENTITY_ID: baby_eid},
         blocking=True,
     )
-    state = hass.states.get(entity_id)
+    state = hass.states.get(eid)
 
     assert state
-    assert state.attributes[ATTR_ICON] == "mdi:human-male-height"
-    assert state.attributes[ATTR_NOTES] == MOCK_SERVICE_ADD_HEIGHT[ATTR_NOTES]
-    assert state.attributes[ATTR_STATE_CLASS] == SensorStateClass.MEASUREMENT
-    assert state.attributes[ATTR_TAGS] == MOCK_SERVICE_ADD_HEIGHT[ATTR_TAGS]
-    assert state.state == str(MOCK_SERVICE_ADD_HEIGHT[ATTR_HEIGHT])
+    _assert_sensor_meta(state, smeta)
+    assert state.attributes["notes"] == MOCK_SERVICE_ADD_HEIGHT["notes"]
+    assert state.attributes["tags"] == MOCK_SERVICE_ADD_HEIGHT["tags"]
+    assert state.state == str(MOCK_SERVICE_ADD_HEIGHT["height"])
 
 
-@pytest.mark.usefixtures("setup_baby_buddy_entry_live")
 async def test_service_add_note(
     hass: HomeAssistant,
+    bb_coordinator: BabyBuddyCoordinator,
 ) -> None:
     """Test the "add note" service call."""
+    meta = bb_coordinator.metadata
+    smeta = find_sensor_meta(meta, "notes")
+    baby_eid = child_entity_id(meta, _CHILD)
+    eid = sensor_entity_id(meta, _CHILD, "notes")
 
-    baby_entity_id = MOCK_BABY_SENSOR_ID
-    entity_id = f"sensor.{MOCK_BABY_NAME}_last_note"
     await hass.services.async_call(
         DOMAIN,
-        ATTR_ACTION_ADD_NOTE,
+        "add_note",
         MOCK_SERVICE_ADD_NOTE,
-        target={ATTR_ENTITY_ID: baby_entity_id},
+        target={ATTR_ENTITY_ID: baby_eid},
         blocking=True,
     )
-    state = hass.states.get(entity_id)
+    state = hass.states.get(eid)
 
     assert state
-    assert state.attributes[ATTR_ICON] == "mdi:note-multiple-outline"
-    assert state.attributes[ATTR_NOTE] == MOCK_SERVICE_ADD_NOTE[ATTR_NOTE]
-    assert state.attributes[ATTR_TAGS] == MOCK_SERVICE_ADD_NOTE[ATTR_TAGS]
+    _assert_sensor_meta(state, smeta)
+    assert state.attributes["note"] == MOCK_SERVICE_ADD_NOTE["note"]
+    assert state.attributes["tags"] == MOCK_SERVICE_ADD_NOTE["tags"]
     assert dt_util.parse_datetime(state.state) == MOCK_SERVICE_ADD_NOTE[ATTR_TIME]
 
 
-@pytest.mark.usefixtures("setup_baby_buddy_entry_live")
 async def test_service_add_temperature(
     hass: HomeAssistant,
+    bb_coordinator: BabyBuddyCoordinator,
 ) -> None:
     """Test the "add temperature" service call."""
+    meta = bb_coordinator.metadata
+    smeta = find_sensor_meta(meta, "temperature")
+    baby_eid = child_entity_id(meta, _CHILD)
+    eid = sensor_entity_id(meta, _CHILD, "temperature")
 
-    baby_entity_id = MOCK_BABY_SENSOR_ID
-    entity_id = f"sensor.{MOCK_BABY_NAME}_last_temperature"
     await hass.services.async_call(
         DOMAIN,
-        ATTR_ACTION_ADD_TEMPERATURE,
+        "add_temperature",
         MOCK_SERVICE_ADD_TEMPERATURE,
-        target={ATTR_ENTITY_ID: baby_entity_id},
+        target={ATTR_ENTITY_ID: baby_eid},
         blocking=True,
     )
-    state = hass.states.get(entity_id)
+    state = hass.states.get(eid)
 
     assert state
-    assert state.attributes[ATTR_ICON] == "mdi:thermometer"
-    assert state.attributes[ATTR_NOTES] == MOCK_SERVICE_ADD_TEMPERATURE[ATTR_NOTES]
-    assert state.attributes[ATTR_STATE_CLASS] == SensorStateClass.MEASUREMENT
-    assert state.attributes[ATTR_TAGS] == MOCK_SERVICE_ADD_TEMPERATURE[ATTR_TAGS]
+    _assert_sensor_meta(state, smeta)
+    assert state.attributes["notes"] == MOCK_SERVICE_ADD_TEMPERATURE["notes"]
+    assert state.attributes["tags"] == MOCK_SERVICE_ADD_TEMPERATURE["tags"]
     assert state.state == str(MOCK_SERVICE_ADD_TEMPERATURE[ATTR_TEMPERATURE])
 
 
-@pytest.mark.usefixtures("setup_baby_buddy_entry_live")
 async def test_service_add_weight(
     hass: HomeAssistant,
+    bb_coordinator: BabyBuddyCoordinator,
 ) -> None:
     """Test the "add weight" service call."""
+    meta = bb_coordinator.metadata
+    smeta = find_sensor_meta(meta, "weight")
+    baby_eid = child_entity_id(meta, _CHILD)
+    eid = sensor_entity_id(meta, _CHILD, "weight")
 
-    baby_entity_id = MOCK_BABY_SENSOR_ID
-    entity_id = f"sensor.{MOCK_BABY_NAME}_last_weight"
     await hass.services.async_call(
         DOMAIN,
-        ATTR_ACTION_ADD_WEIGHT,
+        "add_weight",
         MOCK_SERVICE_ADD_WEIGHT,
-        target={ATTR_ENTITY_ID: baby_entity_id},
+        target={ATTR_ENTITY_ID: baby_eid},
         blocking=True,
     )
-    state = hass.states.get(entity_id)
+    state = hass.states.get(eid)
 
     assert state
-    assert state.attributes[ATTR_ICON] == "mdi:scale-bathroom"
-    assert state.attributes[ATTR_NOTES] == MOCK_SERVICE_ADD_WEIGHT[ATTR_NOTES]
-    assert state.attributes[ATTR_STATE_CLASS] == SensorStateClass.MEASUREMENT
-    assert state.attributes[ATTR_TAGS] == MOCK_SERVICE_ADD_WEIGHT[ATTR_TAGS]
-    assert state.state == str(MOCK_SERVICE_ADD_WEIGHT[ATTR_WEIGHT])
+    _assert_sensor_meta(state, smeta)
+    assert state.attributes["notes"] == MOCK_SERVICE_ADD_WEIGHT["notes"]
+    assert state.attributes["tags"] == MOCK_SERVICE_ADD_WEIGHT["tags"]
+    assert state.state == str(MOCK_SERVICE_ADD_WEIGHT["weight"])

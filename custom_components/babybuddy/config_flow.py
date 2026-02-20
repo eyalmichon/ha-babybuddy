@@ -253,6 +253,8 @@ class BabyBuddyFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                     async_get_clientsession(self.hass),
                 )
                 await client.async_connect()
+            except AuthorizationError:
+                errors["api_key"] = "invalid_auth"
             except ConnectError:
                 errors["base"] = "cannot_connect"
 

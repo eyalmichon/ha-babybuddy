@@ -13,11 +13,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import (
-    ATTR_FIRST_NAME,
-    ATTR_LAST_NAME,
-    DOMAIN,
-)
+from .const import DOMAIN
 from .coordinator import BabyBuddyConfigEntry, BabyBuddyCoordinator
 
 _BINARY_DEVICE_CLASS_MAP: dict[str, BinarySensorDeviceClass] = {
@@ -91,7 +87,7 @@ class BabyBuddyDynamicBinarySensor(CoordinatorEntity, BinarySensorEntity):
         )
         self._attr_device_info = {
             "identifiers": {(DOMAIN, child[ATTR_ID])},
-            "name": f"{child[ATTR_FIRST_NAME]} {child[ATTR_LAST_NAME]}",
+            "name": f"{child['first_name']} {child['last_name']}",
         }
 
         dc = meta.get("device_class")

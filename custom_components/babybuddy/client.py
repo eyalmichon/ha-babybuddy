@@ -132,9 +132,13 @@ class BabyBuddyClient:
             )
         return await resp.json()
 
-    async def async_get_stats(self, child_slug: str) -> dict[str, Any]:
+    async def async_get_stats(
+        self,
+        child_slug: str,
+        stats_endpoint: str = "/api/children/{slug}/stats/",
+    ) -> dict[str, Any]:
         """GET stats for a specific child by slug."""
-        url = f"{self.url}/api/children/{child_slug}/stats/"
+        url = f"{self.url}{stats_endpoint.replace('{slug}', child_slug)}"
         async with asyncio.timeout(10):
             LOGGER.debug("GET URL: %s", url)
             resp = await self.session.get(

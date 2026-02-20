@@ -21,6 +21,7 @@ async def async_setup_entry(
     select_descriptions = [
         select_description_from_metadata(m)
         for m in coordinator.metadata.get("selects", [])
+        if m.get("entity", True)
     ]
     async_add_entities(
         [BabyBuddySelect(coordinator, desc) for desc in select_descriptions]

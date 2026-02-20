@@ -15,7 +15,6 @@ from .services import async_setup_services
 # async_setup is for the initial setup of the integration itself
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up babybuddy."""
-    async_setup_services(hass)
     return True
 
 
@@ -36,6 +35,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: BabyBuddyConfigEntry) ->
     # coordinator.async_refresh() instead
 
     await coordinator.async_config_entry_first_refresh()
+
+    # Register services dynamically from discovery metadata
+    await async_setup_services(hass, coordinator)
 
     # Set up MQTT subscriptions after first data fetch (child slugs needed)
     if entry.options.get("mqtt_enabled", False):

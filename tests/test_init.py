@@ -1,44 +1,46 @@
-"""Test babybuddy sensors."""
+"""Test babybuddy child creation."""
 
 import pytest
-
-from custom_components.babybuddy.const import (
-    ATTR_ACTION_ADD_CHILD,
-    ATTR_BABYBUDDY_CHILD,
-    ATTR_FIRST_NAME,
-    ATTR_ICON_CHILD_SENSOR,
-    ATTR_LAST_NAME,
-    DOMAIN,
-)
 from homeassistant.const import ATTR_DEVICE_CLASS, ATTR_ICON
 from homeassistant.core import HomeAssistant
 
-from .const import MOCK_BABY_SENSOR_ID, MOCK_SERVICE_ADD_CHILD_SCHEMA
+from custom_components.babybuddy.const import DOMAIN
+from custom_components.babybuddy.coordinator import BabyBuddyCoordinator
+
+from .conftest import child_entity_id
+from .const import MOCK_SERVICE_ADD_CHILD_SCHEMA
 
 
 @pytest.mark.usefixtures("setup_baby_buddy_entry_live")
 async def test_service_add_child(
     hass: HomeAssistant,
+    bb_coordinator: BabyBuddyCoordinator,
 ) -> None:
     """Test the "add child" service call."""
+    meta = bb_coordinator.metadata
+    child_meta = meta.get("child", {})
 
-    entity_id = MOCK_BABY_SENSOR_ID
+    entity_id = child_entity_id(meta, MOCK_SERVICE_ADD_CHILD_SCHEMA)
     await hass.services.async_call(
         DOMAIN,
-        ATTR_ACTION_ADD_CHILD,
+        "add_child",
         MOCK_SERVICE_ADD_CHILD_SCHEMA,
         blocking=True,
     )
     state = hass.states.get(entity_id)
 
     assert state
-    assert state.attributes[ATTR_DEVICE_CLASS] == ATTR_BABYBUDDY_CHILD
-    assert (
-        state.attributes[ATTR_FIRST_NAME]
-        == MOCK_SERVICE_ADD_CHILD_SCHEMA[ATTR_FIRST_NAME]
+    assert state.attributes[ATTR_DEVICE_CLASS] == child_meta.get(
+        "device_class", "babybuddy_child"
     )
-    assert state.attributes[ATTR_ICON] == ATTR_ICON_CHILD_SENSOR
     assert (
-        state.attributes[ATTR_LAST_NAME]
-        == MOCK_SERVICE_ADD_CHILD_SCHEMA[ATTR_LAST_NAME]
+        state.attributes["first_name"]
+        == MOCK_SERVICE_ADD_CHILD_SCHEMA["first_name"]
+    )
+    assert state.attributes[ATTR_ICON] == child_meta.get(
+        "icon", "mdi:baby-face-outline"
+    )
+    assert (
+        state.attributes["last_name"]
+        == MOCK_SERVICE_ADD_CHILD_SCHEMA["last_name"]
     )

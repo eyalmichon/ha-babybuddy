@@ -1,36 +1,14 @@
 """Constants for babybuddy tests."""
 
-from datetime import datetime, timedelta
+from __future__ import annotations
+
+import json
 import os
-from typing import Final
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any, Final
 from zoneinfo import ZoneInfo
 
-from custom_components.babybuddy.const import (
-    ATTR_AMOUNT,
-    ATTR_BIRTH_DATE,
-    ATTR_BMI,
-    ATTR_COLOR,
-    ATTR_END,
-    ATTR_FIRST_NAME,
-    ATTR_HEAD_CIRCUMFERENCE_UNDERSCORE,
-    ATTR_HEIGHT,
-    ATTR_LAST_NAME,
-    ATTR_METHOD,
-    ATTR_MILESTONE,
-    ATTR_NAP,
-    ATTR_NOTE,
-    ATTR_NOTES,
-    ATTR_START,
-    ATTR_TAGS,
-    ATTR_TIMER,
-    ATTR_TYPE,
-    ATTR_WEIGHT,
-    CONF_FEEDING_UNIT,
-    CONF_WEIGHT_UNIT,
-    DEFAULT_PATH,
-    DEFAULT_PORT,
-    DEFAULT_SCAN_INTERVAL,
-)
 from homeassistant.const import (
     ATTR_DATE,
     ATTR_TEMPERATURE,
@@ -47,19 +25,52 @@ from homeassistant.const import (
 )
 from homeassistant.util import dt as dt_util
 
+from custom_components.babybuddy.const import (
+    CONF_FEEDING_UNIT,
+    CONF_MQTT_ENABLED,
+    CONF_MQTT_TOPIC_PREFIX,
+    CONF_WEIGHT_UNIT,
+    DEFAULT_MQTT_TOPIC_PREFIX,
+    DEFAULT_PATH,
+    DEFAULT_PORT,
+    DEFAULT_SCAN_INTERVAL,
+)
+
 ATTR_INT_10: Final[int] = 10
 ATTR_STEP_ID_USER: Final[str] = "user"
 
-BABY_BUDDY_HOST = os.environ.get("BABY_BUDDY_HOST")
-BABY_BUDDY_PORT = int(os.environ.get("BABY_BUDDY_PORT", DEFAULT_PORT))
-API_KEY = os.environ.get("API_KEY")
 
-MOCK_CONFIG = {
-    CONF_HOST: BABY_BUDDY_HOST,
-    CONF_PORT: BABY_BUDDY_PORT,
-    CONF_PATH: DEFAULT_PATH,
-    CONF_API_KEY: API_KEY,
-}
+def _resolve_bb_config() -> dict[str, Any]:
+    """Read BB connection from HA's .storage, falling back to env vars."""
+    storage = (
+        Path(__file__).resolve().parents[1]
+        / ".dev"
+        / "ha"
+        / ".storage"
+        / "core.config_entries"
+    )
+    try:
+        data = json.loads(storage.read_text())
+        for entry in data["data"]["entries"]:
+            if entry.get("domain") == "babybuddy":
+                d = entry["data"]
+                return {
+                    CONF_HOST: d["host"],
+                    CONF_PORT: d["port"],
+                    CONF_PATH: d.get("path") or DEFAULT_PATH,
+                    CONF_API_KEY: d["api_key"],
+                }
+    except (FileNotFoundError, KeyError, json.JSONDecodeError):
+        pass
+    return {
+        CONF_HOST: os.environ.get("BABY_BUDDY_HOST", ""),
+        CONF_PORT: int(os.environ.get("BABY_BUDDY_PORT", str(DEFAULT_PORT))),
+        CONF_PATH: DEFAULT_PATH,
+        CONF_API_KEY: os.environ.get("API_KEY", ""),
+    }
+
+
+MOCK_CONFIG = _resolve_bb_config()
 INVALID_CONFIG_CONNECTERROR = {
     **MOCK_CONFIG,
     CONF_PATH: "lorem",
@@ -73,6 +84,8 @@ MOCK_OPTIONS = {
     CONF_WEIGHT_UNIT: UnitOfMass.GRAMS,
     CONF_FEEDING_UNIT: UnitOfVolume.MILLILITERS,
     CONF_SCAN_INTERVAL: DEFAULT_SCAN_INTERVAL,
+    CONF_MQTT_ENABLED: False,
+    CONF_MQTT_TOPIC_PREFIX: DEFAULT_MQTT_TOPIC_PREFIX,
 }
 
 MOCK_DATE_NOW: Final = dt_util.now().date()
@@ -82,117 +95,114 @@ MOCK_TEXT: Final[str] = "Lorem ipsum dolor sit amet, consectetur adipiscing elit
 MOCK_NUMBER: Final = 123.0
 
 MOCK_SERVICE_ADD_CHILD_SCHEMA = {
-    ATTR_BIRTH_DATE: MOCK_DATE_NOW,
-    ATTR_FIRST_NAME: "lorem",
-    ATTR_LAST_NAME: "ipsum",
+    "birth_date": MOCK_DATE_NOW,
+    "first_name": "lorem",
+    "last_name": "ipsum",
 }
 MOCK_SERVICE_ADD_BMI_SCHEMA = {
-    ATTR_BMI: MOCK_NUMBER,
+    "bmi": MOCK_NUMBER,
     ATTR_DATE: MOCK_DATE_NOW,
-    ATTR_NOTES: MOCK_TEXT,
-    ATTR_TAGS: [MOCK_TEXT],
+    "notes": MOCK_TEXT,
+    "tags": [MOCK_TEXT],
 }
 MOCK_SERVICE_ADD_DIAPER_CHANGE = {
     ATTR_TIME: MOCK_DATETIME_NOW,
-    ATTR_NOTES: MOCK_TEXT,
-    ATTR_TYPE: "Wet and Solid",
-    ATTR_COLOR: "Black",
-    ATTR_AMOUNT: MOCK_NUMBER,
-    ATTR_TAGS: [MOCK_TEXT],
+    "notes": MOCK_TEXT,
+    "type": "Wet and Solid",
+    "color": "Black",
+    "amount": MOCK_NUMBER,
+    "tags": [MOCK_TEXT],
 }
 MOCK_SERVICE_ADD_HEAD_CIRCUMFERENCE = {
-    ATTR_HEAD_CIRCUMFERENCE_UNDERSCORE: MOCK_NUMBER,
+    "head_circumference": MOCK_NUMBER,
     ATTR_DATE: MOCK_DATE_NOW,
-    ATTR_NOTES: MOCK_TEXT,
-    ATTR_TAGS: [MOCK_TEXT],
+    "notes": MOCK_TEXT,
+    "tags": [MOCK_TEXT],
 }
 MOCK_SERVICE_ADD_HEIGHT = {
-    ATTR_HEIGHT: MOCK_NUMBER,
+    "height": MOCK_NUMBER,
     ATTR_DATE: MOCK_DATE_NOW,
-    ATTR_NOTES: MOCK_TEXT,
-    ATTR_TAGS: [MOCK_TEXT],
+    "notes": MOCK_TEXT,
+    "tags": [MOCK_TEXT],
 }
 MOCK_SERVICE_ADD_NOTE = {
     ATTR_TIME: MOCK_DATETIME_NOW,
-    ATTR_NOTE: MOCK_TEXT,
-    ATTR_TAGS: [MOCK_TEXT],
+    "note": MOCK_TEXT,
+    "tags": [MOCK_TEXT],
 }
 MOCK_SERVICE_ADD_PUMPING = {
-    ATTR_AMOUNT: MOCK_NUMBER,
+    "amount": MOCK_NUMBER,
     ATTR_TIME: MOCK_DATETIME_NOW,
-    ATTR_NOTES: MOCK_TEXT,
-    ATTR_TAGS: [MOCK_TEXT],
+    "notes": MOCK_TEXT,
+    "tags": [MOCK_TEXT],
 }
 MOCK_SERVICE_ADD_TEMPERATURE = {
     ATTR_TEMPERATURE: 102.3,
     ATTR_TIME: MOCK_DATETIME_NOW,
-    ATTR_NOTES: MOCK_TEXT,
-    ATTR_TAGS: [MOCK_TEXT],
+    "notes": MOCK_TEXT,
+    "tags": [MOCK_TEXT],
 }
 MOCK_SERVICE_ADD_WEIGHT = {
     ATTR_DATE: MOCK_DATE_NOW,
-    ATTR_NOTES: MOCK_TEXT,
-    ATTR_WEIGHT: MOCK_NUMBER,
-    ATTR_TAGS: [MOCK_TEXT],
+    "notes": MOCK_TEXT,
+    "weight": MOCK_NUMBER,
+    "tags": [MOCK_TEXT],
 }
 MOCK_SERVICE_ADD_FEEDING = {
-    ATTR_TYPE: "Breast milk",
-    ATTR_METHOD: "Bottle",
-    ATTR_AMOUNT: MOCK_NUMBER,
-    ATTR_NOTES: MOCK_TEXT,
-    ATTR_TAGS: [MOCK_TEXT],
+    "type": "Breast milk",
+    "method": "Bottle",
+    "amount": MOCK_NUMBER,
+    "notes": MOCK_TEXT,
+    "tags": [MOCK_TEXT],
 }
 MOCK_SERVICE_ADD_FEEDING_START_STOP = {
     **MOCK_SERVICE_ADD_FEEDING,
-    ATTR_START: MOCK_DATETIME_NOW - MOCK_DURATION,
-    ATTR_END: MOCK_DATETIME_NOW,
+    "start": MOCK_DATETIME_NOW - MOCK_DURATION,
+    "end": MOCK_DATETIME_NOW,
 }
 MOCK_SERVICE_ADD_FEEDING_TIMER = {
     **MOCK_SERVICE_ADD_FEEDING,
-    ATTR_TIMER: True,
+    "timer": True,
 }
 MOCK_SERVICE_ADD_PUMPING = {
-    ATTR_AMOUNT: MOCK_NUMBER,
-    ATTR_NOTES: MOCK_TEXT,
-    ATTR_TAGS: [MOCK_TEXT],
+    "amount": MOCK_NUMBER,
+    "notes": MOCK_TEXT,
+    "tags": [MOCK_TEXT],
 }
 MOCK_SERVICE_ADD_PUMPING_START_STOP = {
     **MOCK_SERVICE_ADD_PUMPING,
-    ATTR_START: MOCK_DATETIME_NOW - MOCK_DURATION,
-    ATTR_END: MOCK_DATETIME_NOW,
+    "start": MOCK_DATETIME_NOW - MOCK_DURATION,
+    "end": MOCK_DATETIME_NOW,
 }
 MOCK_SERVICE_ADD_PUMPING_TIMER = {
     **MOCK_SERVICE_ADD_PUMPING,
-    ATTR_TIMER: True,
+    "timer": True,
 }
 MOCK_SERVICE_ADD_SLEEP = {
-    ATTR_NAP: True,
-    ATTR_NOTES: MOCK_TEXT,
-    ATTR_TAGS: [MOCK_TEXT],
+    "nap": True,
+    "notes": MOCK_TEXT,
+    "tags": [MOCK_TEXT],
 }
 MOCK_SERVICE_ADD_SLEEP_START_STOP = {
     **MOCK_SERVICE_ADD_SLEEP,
-    ATTR_START: MOCK_DATETIME_NOW - MOCK_DURATION,
-    ATTR_END: MOCK_DATETIME_NOW,
+    "start": MOCK_DATETIME_NOW - MOCK_DURATION,
+    "end": MOCK_DATETIME_NOW,
 }
 MOCK_SERVICE_ADD_SLEEP_TIMER = {
     **MOCK_SERVICE_ADD_SLEEP,
-    ATTR_TIMER: True,
+    "timer": True,
 }
 MOCK_SERVICE_ADD_TUMMY_TIME = {
-    ATTR_MILESTONE: MOCK_TEXT,
-    ATTR_TAGS: [MOCK_TEXT],
+    "milestone": MOCK_TEXT,
+    "tags": [MOCK_TEXT],
 }
 MOCK_SERVICE_ADD_TUMMY_TIME_START_STOP = {
     **MOCK_SERVICE_ADD_TUMMY_TIME,
-    ATTR_START: MOCK_DATETIME_NOW - MOCK_DURATION,
-    ATTR_END: MOCK_DATETIME_NOW,
+    "start": MOCK_DATETIME_NOW - MOCK_DURATION,
+    "end": MOCK_DATETIME_NOW,
 }
 MOCK_SERVICE_ADD_TUMMY_TIME_TIMER = {
     **MOCK_SERVICE_ADD_TUMMY_TIME,
-    ATTR_TIMER: True,
+    "timer": True,
 }
 
-MOCK_BABY_NAME = f"{MOCK_SERVICE_ADD_CHILD_SCHEMA[ATTR_FIRST_NAME]}_{MOCK_SERVICE_ADD_CHILD_SCHEMA[ATTR_LAST_NAME]}"
-MOCK_BABY_SENSOR_ID = f"sensor.baby_{MOCK_BABY_NAME}"
-MOCK_BABY_SWITCH_ID = f"switch.{MOCK_BABY_NAME}_timer"
