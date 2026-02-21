@@ -1,234 +1,301 @@
-# baby_buddy_homeassistant
+# Baby Buddy for Home Assistant
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Default-orange.svg)](https://github.com/custom-components/hacs)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
-This custom integration allows you to monitor [Baby Buddy](https://github.com/babybuddy/babybuddy) data for your child within [Home Assistant](https://github.com/home-assistant/core). It also allows you to start timers and add data entries from within Home Assistant.
+A Home Assistant custom integration for [Baby Buddy](https://github.com/babybuddy/babybuddy). Monitor your child's activities, add data entries, and control timers — all from within Home Assistant.
+
+**Requires Baby Buddy 2.10.0 or newer.**
+
+## Features
+
+- **Dynamic entity discovery** — sensors, binary sensors, selects, and switches are automatically created based on Baby Buddy's metadata endpoint
+- **Real-time MQTT updates** — subscribe to Baby Buddy's MQTT state topics for instant sensor updates without polling
+- **Bulk API optimization** — fetches all sensor data in a single API call per child (BB 2.10.0+)
+- **Zeroconf discovery** — automatically detects Baby Buddy instances on your local network
+- **HA services** — add feedings, diaper changes, sleep entries, and more directly from HA automations
+- **Timer control** — start and stop Baby Buddy timers via switch entities
 
 ## Installation
 
-### HACS
+### HACS (recommended)
 
-1. Navigate to integrations section.
-1. Click "Explore & Add Repositories" in the bottom right corner.
-1. Search for "Baby Buddy".
-1. Click "INSTALL THIS REPOSITORY IN HACS".
-1. Click "Install".
+1. Open HACS in your Home Assistant instance.
+2. Go to the **three-dot menu** (top right) → **Custom repositories**.
+3. Add `https://github.com/eyalmichon/ha-babybuddy` with category **Integration**.
+4. Search for **Baby Buddy** in the Integrations section and click **Install**.
+5. Restart Home Assistant.
+
+### Manual
+
+Copy the `custom_components/babybuddy` folder into your Home Assistant `config/custom_components/` directory and restart.
 
 ## Configuration
 
-Adding BabyBuddy to your Home Assistant instance can be done via the user interface. The below parameters are required.
+### Automatic discovery (Zeroconf)
 
-### Parameters
+If Baby Buddy advertises itself via mDNS (`_babybuddy._tcp.local.`), Home Assistant will automatically detect it. You'll only need to provide your API key.
 
-| Name    | Optional | Description                                                            |
-| ------- | :------: | ---------------------------------------------------------------------- |
-| address |    no    | Host URL for your instance of Baby Buddy, without sub path             |
-| port    |    no    | Host port (default = 8000)                                             |
-| path    |    no    | Sub path of your Baby Buddy instance (default = "")                    |
-| api_key |    no    | The API key from the user settings page on your instance of Baby Buddy |
+### Manual setup
+
+Go to **Settings → Devices & Services → Add Integration → Baby Buddy** and enter:
+
+| Parameter | Description |
+| --------- | ----------- |
+| Host | URL of your Baby Buddy instance (e.g. `http://192.168.1.50`) |
+| Port | Port number (default: `8000`) |
+| Path | Sub-path if Baby Buddy is behind a reverse proxy (default: empty) |
+| API Key | From Baby Buddy → User Settings → API Key |
 
 ### Options
 
-The following options are available:
+After setup, configure these options via the integration's **Configure** button:
 
-- Temperature unit (Celsius or Fahrenheit)
+| Option | Description | Default |
+| ------ | ----------- | ------- |
+| Temperature unit | Celsius or Fahrenheit | Celsius |
+| Weight unit | kg, g, lb, or oz | kg |
+| Feeding volume unit | mL or fl. oz. | mL |
+| Update interval | Polling interval in seconds | 60 |
+| Enable MQTT | Subscribe to Baby Buddy MQTT state topics for real-time updates | Off |
+| MQTT topic prefix | Base topic for MQTT subscriptions | `babybuddy` |
 
-- Weight unit (kilogram, pound, or ounce)
+### Reconfigure
 
-- Feeding amount volume unit (mL or fl. oz.)
+To change the host, port, path, or API key after setup, use the **Reconfigure** option in the integration menu (no need to delete and re-add).
 
-- Update interval in seconds (default = 60)
+## Entities
 
-## Integration Entities
-
-This integration provides the following entities.
+All entities are dynamically created based on Baby Buddy's discovery metadata. The exact set depends on your Baby Buddy version.
 
 ### Sensors
 
-- A sensor for each child, with date of birth returned as state.
+| Sensor | Description |
+| ------ | ----------- |
+| **Child** | One per child — state is the child's date of birth |
+| **Last [activity]** | Last diaper change, feeding, sleep, temperature, weight, BMI, height, head circumference, note, pumping, tummy time, and medication. State is a timestamp; attributes contain the full entry details. |
+| **[Stat] today** | Daily statistics — feedings today, diaper changes today, sleep total today, minutes since last feeding/diaper change, etc. |
 
-- A sensor for each **last** data entry, including `diaper_change`, `feeding`, `notes`, `sleep`, `temperature`, `tummy_time`, `temperature`, and `weight`.
+### Binary Sensors
+
+| Binary Sensor | Description |
+| ------------- | ----------- |
+| **Medication overdue** | `on` when one or more medications are overdue |
 
 ### Switches
 
-- A switch is created for each child to handle its `timer`. Turning on the switch starts a new timer for the linked child. Turning off the switch deletes the timer. (check below for usage of timer.)
+| Switch | Description |
+| ------ | ----------- |
+| **Timer** | One per child. Turn **on** to start a timer, turn **off** to stop/delete it. Timers can be linked to feeding, sleep, and tummy time entries. |
 
-#### Timer notes
+### Selects
 
-`Feeding`, `Sleep`, and `Tummy time` can be linked to a timer. If a timer is active you can add any of these entries and link it to the timer to automatically specify child, start time, and end time. It is important that the timer is active when the service is called.
+| Select | Description |
+| ------ | ----------- |
+| **Feeding type** | Breast milk, Formula, Fortified breast milk, Solid food |
+| **Feeding method** | Bottle, Left breast, Right breast, Both breasts, Self fed, Parent fed |
+| **Diaper color** | Black, Brown, Green, Yellow |
+
+Select entities are used as defaults when calling the corresponding services.
 
 ## Services
 
-### SERVICE ADD_CHILD
+All services are dynamically registered from Baby Buddy's metadata. Below are the standard services.
 
-This service adds a new child. At least one child should be added to start seeing the different sensors and switches.
+### `babybuddy.add_child`
 
-| Service data attribute | Optional | Description                             |
-| ---------------------- | :------: | --------------------------------------- |
-| first_name             |    no    | Baby's first name                       |
-| last_name              |    no    | Baby's last name                        |
-| birth_date             |    no    | Child's birth date in YYYY-MM-DD format |
+Add a new child.
 
-### SERVICE ADD_BMI
+| Attribute | Required | Description |
+| --------- | :------: | ----------- |
+| first_name | yes | Baby's first name |
+| last_name | yes | Baby's last name |
+| birth_date | yes | Date of birth (`YYYY-MM-DD`) |
 
-This service adds a BMI entry for your child.
+### `babybuddy.add_diaper_change`
 
-| Service data attribute | Optional | Description                                                               |
-| ---------------------- | :------: | ------------------------------------------------------------------------- |
-| entity_id              |    no    | entity_id for the child sensor                                            |
-| BMI                    |    no    | Specify BMI value (float)                                                 |
-| date                   |   yes    | Specify BMI recording date (YYYY-MM-DD format, else today() will be used) |
-| notes                  |   yes    | Add notes text to entry                                                   |
-| tags                   |   yes    | Add tag(s) to entry                                                       |
+| Attribute | Required | Description |
+| --------- | :------: | ----------- |
+| entity_id | yes | Child sensor entity |
+| type | no | `Wet`, `Solid`, or `Wet and Solid` |
+| time | no | Timestamp (must be in the past) |
+| color | no | `Black`, `Brown`, `Green`, or `Yellow` |
+| amount | no | Number of diapers |
+| notes | no | Notes text |
+| tags | no | List of tags |
 
-### SERVICE ADD_DIAPER_CHANGE
+### `babybuddy.add_feeding`
 
-This service adds a diaper change entry for your child.
+Feeding can be linked to an active timer.
 
-| Service data attribute | Optional | Description                                                                |
-| ---------------------- | :------: | -------------------------------------------------------------------------- |
-| entity_id              |    no    | entity_id for the child sensor                                             |
-| type                   |   yes    | Specify type of diaper. This can be `Wet`, `Solid`, or `Wet and Solid`.    |
-| time                   |   yes    | Specify diaper change time (must be in the past, else now() will be used)  |
-| color                  |   yes    | Specify diaper color. This can be `Black`, `Brown` , `Green`, or `Yellow`. |
-| amount                 |   yes    | Add number of diapers                                                      |
-| notes                  |   yes    | Add notes text to entry                                                    |
-| tags                   |   yes    | Add tag(s) to entry                                                        |
+| Attribute | Required | Description |
+| --------- | :------: | ----------- |
+| entity_id | yes | Timer switch entity |
+| type | yes | `Breast milk`, `Formula`, `Fortified breast milk`, or `Solid food` |
+| method | yes | `Bottle`, `Left breast`, `Right breast`, `Both breasts`, `Self fed`, or `Parent fed` |
+| timer | no | `true` to use the active timer for start/end |
+| start | no | Start time (ignored if timer is used) |
+| end | no | End time (ignored if timer is used) |
+| amount | no | Amount as integer |
+| notes | no | Notes text |
+| tags | no | List of tags |
 
-### SERVICE ADD_FEEDING
+### `babybuddy.add_sleep`
 
-This service adds a feeding entry for your child. Feeding start/end/child fields can be linked to an active timer.
+Sleep can be linked to an active timer.
 
-| Service data attribute | Optional | Description                                                                                                                    |
-| ---------------------- | :------: | ------------------------------------------------------------------------------------------------------------------------------ |
-| entity_id              |    no    | entity_id for the timer switch linked to the child.                                                                            |
-| type                   |    no    | Specify type of feeding. Can be one of `Breast milk`, `Formula`, `Fortified breast milk`, or `Solid food`.                     |
-| method                 |    no    | Specify method of feeding. Can be one of `Bottle`, `Left breast`, `Right breast`, `Both breasts`, `Self fed`, or `Parent fed`. |
-| timer                  |   yes    | Set to True to use the currently active timer                                                                                  |
-| start                  |   yes    | Specify start time (must be in the past, else now() will be used). This can be ignored if timer is used.                       |
-| end                    |   yes    | Specify end time (must be in the past, else now() will be used). This can be ignored if timer is used.                         |
-| amount                 |   yes    | Specify amount of feeding as an integer                                                                                        |
-| notes                  |   yes    | Add notes text to entry                                                                                                        |
-| tags                   |   yes    | Add tag(s) to entry                                                                                                            |
+| Attribute | Required | Description |
+| --------- | :------: | ----------- |
+| entity_id | yes | Timer switch entity |
+| timer | no | `true` to use the active timer |
+| start | no | Start time |
+| end | no | End time |
+| nap | no | `true` to mark as nap |
+| notes | no | Notes text |
+| tags | no | List of tags |
 
-### SERVICE ADD_HEAD_CIRCUMFERENCE
+### `babybuddy.add_temperature`
 
-This service adds a head circumference entry for your child.
+| Attribute | Required | Description |
+| --------- | :------: | ----------- |
+| entity_id | yes | Child sensor entity |
+| temperature | yes | Temperature value (float) |
+| time | no | Recording time |
+| notes | no | Notes text |
+| tags | no | List of tags |
 
-| Service data attribute | Optional | Description                                                                              |
-| ---------------------- | :------: | ---------------------------------------------------------------------------------------- |
-| entity_id              |    no    | entity_id for the child sensor                                                           |
-| head_circumference     |    no    | Specify head circumference value (float)                                                 |
-| date                   |   yes    | Specify head circumference recording date (YYYY-MM-DD format, else today() will be used) |
-| notes                  |   yes    | Add notes text to entry                                                                  |
-| tags                   |   yes    | Add tag(s) to entry                                                                      |
+### `babybuddy.add_weight`
 
-### SERVICE ADD_HEIGHT
+| Attribute | Required | Description |
+| --------- | :------: | ----------- |
+| entity_id | yes | Child sensor entity |
+| weight | yes | Weight value (float) |
+| date | no | Recording date (`YYYY-MM-DD`) |
+| notes | no | Notes text |
+| tags | no | List of tags |
 
-This service adds a height entry for your child.
+### `babybuddy.add_height`
 
-| Service data attribute | Optional | Description                                                                  |
-| ---------------------- | :------: | ---------------------------------------------------------------------------- |
-| entity_id              |    no    | entity_id for the child sensor                                               |
-| height                 |    no    | Specify height value (float)                                                 |
-| date                   |   yes    | Specify height recording date (YYYY-MM-DD format, else today() will be used) |
-| notes                  |   yes    | Add notes text to entry                                                      |
-| tags                   |   yes    | Add tag(s) to entry                                                          |
+| Attribute | Required | Description |
+| --------- | :------: | ----------- |
+| entity_id | yes | Child sensor entity |
+| height | yes | Height value (float) |
+| date | no | Recording date (`YYYY-MM-DD`) |
+| notes | no | Notes text |
+| tags | no | List of tags |
 
-### SERVICE ADD_NOTE
+### `babybuddy.add_head_circumference`
 
-This service adds a note entry for your child.
+| Attribute | Required | Description |
+| --------- | :------: | ----------- |
+| entity_id | yes | Child sensor entity |
+| head_circumference | yes | Value (float) |
+| date | no | Recording date (`YYYY-MM-DD`) |
+| notes | no | Notes text |
+| tags | no | List of tags |
 
-| Service data attribute | Optional | Description                                                                 |
-| ---------------------- | :------: | --------------------------------------------------------------------------- |
-| entity_id              |    no    | entity_id for the child sensor                                              |
-| notes                  |   yes    | Add notes text to entry                                                     |
-| time                   |   yes    | Specify notes recording time (must be in the past, else now() will be used) |
-| tags                   |   yes    | Add tag(s) to entry                                                         |
+### `babybuddy.add_bmi`
 
-### SERVICE ADD_PUMPING
+| Attribute | Required | Description |
+| --------- | :------: | ----------- |
+| entity_id | yes | Child sensor entity |
+| BMI | yes | BMI value (float) |
+| date | no | Recording date (`YYYY-MM-DD`) |
+| notes | no | Notes text |
+| tags | no | List of tags |
 
-This service adds a pumping entry for your child.
+### `babybuddy.add_note`
 
-| Service data attribute | Optional | Description                                                                                              |
-| ---------------------- | :------: | -------------------------------------------------------------------------------------------------------- |
-| entity_id              |    no    | entity_id for the child sensor                                                                           |
-| amount                 |    no    | Specify amount of pumping as an integer                                                                  |
-| timer                  |   yes    | Set to True to use the currently active timer                                                            |
-| start                  |   yes    | Specify start time (must be in the past, else now() will be used). This can be ignored if timer is used. |
-| end                    |   yes    | Specify end time (must be in the past, else now() will be used). This can be ignored if timer is used.   |
-| notes                  |   yes    | Add notes text to entry                                                                                  |
-| tags                   |   yes    | Add tag(s) to entry                                                                                      |
+| Attribute | Required | Description |
+| --------- | :------: | ----------- |
+| entity_id | yes | Child sensor entity |
+| notes | no | Note text |
+| time | no | Recording time |
+| tags | no | List of tags |
 
-### SERVICE ADD_SLEEP
+### `babybuddy.add_pumping`
 
-This service adds a sleep entry for your child. Sleep start/end/child fields can be linked to an active timer.
+Pumping can be linked to an active timer.
 
-| Service data attribute | Optional | Description                                                                                              |
-| ---------------------- | :------: | -------------------------------------------------------------------------------------------------------- |
-| entity_id              |    no    | entity_id for the timer switch linked to the child                                                       |
-| timer                  |   yes    | Set to True to use the currently active timer                                                            |
-| start                  |   yes    | Specify start time (must be in the past, else now() will be used). This can be ignored if timer is used. |
-| end                    |   yes    | Specify end time (must be in the past, else now() will be used). This can be ignored if timer is used.   |
-| nap                    |   yes    | Set to True to designate as nap.                                                                         |
-| notes                  |   yes    | Add notes text to entry                                                                                  |
-| tags                   |   yes    | Add tag(s) to entry                                                                                      |
+| Attribute | Required | Description |
+| --------- | :------: | ----------- |
+| entity_id | yes | Child sensor entity |
+| amount | yes | Amount as integer |
+| timer | no | `true` to use the active timer |
+| start | no | Start time |
+| end | no | End time |
+| notes | no | Notes text |
+| tags | no | List of tags |
 
-### SERVICE ADD_TEMPERATURE
+### `babybuddy.add_tummy_time`
 
-This service adds a temperature entry for your child.
+Tummy time can be linked to an active timer.
 
-| Service data attribute | Optional | Description                                                                       |
-| ---------------------- | :------: | --------------------------------------------------------------------------------- |
-| entity_id              |    no    | entity_id for the child sensor                                                    |
-| temperature            |    no    | Specify temperature value (float)                                                 |
-| time                   |   yes    | Specify temperature recording time (must be in the past, else now() will be used) |
-| notes                  |   yes    | Add notes text to entry                                                           |
-| tags                   |   yes    | Add tag(s) to entry                                                               |
+| Attribute | Required | Description |
+| --------- | :------: | ----------- |
+| entity_id | yes | Timer switch entity |
+| timer | no | `true` to use the active timer |
+| start | no | Start time |
+| end | no | End time |
+| milestone | no | Milestone text |
+| tags | no | List of tags |
 
-### SERVICE ADD_TUMMY_TIME
+### `babybuddy.delete_last_entry`
 
-This service adds a tummy time entry for your child. Tummy time start/end/child fields can be linked to an active timer.
-
-| Service data attribute | Optional | Description                                                                                              |
-| ---------------------- | :------: | -------------------------------------------------------------------------------------------------------- |
-| entity_id              |    no    | entity_id for the timer switch linked to the child                                                       |
-| timer                  |   yes    | Set to True to use the currently active timer                                                            |
-| start                  |   yes    | Specify start time (must be in the past, else now() will be used). This can be ignored if timer is used. |
-| end                    |   yes    | Specify end time (must be in the past, else now() will be used). This can be ignored if timer is used.   |
-| milestone              |   yes    | Add milestone text to entry                                                                              |
-| tags                   |   yes    | Add tag(s) to entry                                                                                      |
-
-### SERVICE ADD_WEIGHT
-
-This service adds a weight entry for your child.
-
-| Service data attribute | Optional | Description                                                                  |
-| ---------------------- | :------: | ---------------------------------------------------------------------------- |
-| entity_id              |    no    | entity_id for the child sensor                                               |
-| weight                 |    no    | Specify weight value (float)                                                 |
-| date                   |   yes    | Specify weight recording date (YYYY-MM-DD format, else today() will be used) |
-| notes                  |   yes    | Add notes text to entry                                                      |
-| tags                   |   yes    | Add tag(s) to entry                                                          |
-
-### SERVICE DELETE_LAST_ENTRY
-
-This service will delete the last entry for the specified sensor (last weight, last feeding, etc.).
+Deletes the most recent entry for a given sensor.
 
 > [!CAUTION]
-> Calling this service on a device, which represents a child, in Home Assistant will call the delete service once for *every* sensor on that child.
+> Calling this service on a **device** (which represents a child) will delete the last entry for **every** sensor on that child.
 
-| Service data attribute | Optional | Description                                                    |
-| ---------------------- | :------: | -------------------------------------------------------------- |
-| entity_id              |    no    | entity_id for the sensor that will have its last entry deleted |
+| Attribute | Required | Description |
+| --------- | :------: | ----------- |
+| entity_id | yes | Sensor entity to delete the last entry for |
 
-### SERVICE START_TIMER
+### `babybuddy.start_timer`
 
-This service starts a new timer for specified child with optional starting time.
+| Attribute | Required | Description |
+| --------- | :------: | ----------- |
+| entity_id | yes | Timer switch entity |
+| start | no | Start time (must be in the past) |
+| name | no | Optional timer name |
 
-| Service data attribute | Optional | Description                                                       |
-| ---------------------- | :------: | ----------------------------------------------------------------- |
-| entity_id              |    no    | entity_id for the switch linked to the child                      |
-| start                  |   yes    | Specify start time (must be in the past, else now() will be used) |
-| name                   |   yes    | Optional name for new timer                                       |
+## MQTT
+
+When **Enable MQTT** is turned on in the integration options, the integration subscribes to Baby Buddy's MQTT state topics for real-time updates. This means sensors update instantly when activities are logged — no waiting for the next polling interval.
+
+Baby Buddy publishes retained messages to topics like:
+
+```
+babybuddy/{child-slug}/feedings/state
+babybuddy/{child-slug}/sleep/state
+babybuddy/{child-slug}/stats/state
+...
+```
+
+### MQTT discovery conflict
+
+Baby Buddy has a built-in option to publish Home Assistant MQTT discovery configs, which creates a separate set of MQTT-based entities. If both that option and this integration are enabled, you'll get **duplicate entities**.
+
+The integration detects this conflict and creates a **repair issue** in Home Assistant. If your Baby Buddy version supports it, the repair flow can automatically disable BB's discovery toggle for you.
+
+## Compatibility
+
+| Component | Minimum Version |
+| --------- | --------------- |
+| Baby Buddy | 2.10.0 |
+| Home Assistant | 2025.1.0 |
+
+## Development
+
+This project uses [Ruff](https://github.com/astral-sh/ruff) for linting and formatting. Run checks with:
+
+```bash
+ruff check custom_components/babybuddy/
+ruff format --check custom_components/babybuddy/
+```
+
+Tests run against a live Baby Buddy instance (see `.devcontainer/` for the dev environment setup):
+
+```bash
+pytest tests/
+```

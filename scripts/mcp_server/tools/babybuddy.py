@@ -2,11 +2,30 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
+from urllib.parse import urlparse
 
 import aiohttp
 
 from mcp_server.config import get_bb_config
+
+_SAFE_PATH = re.compile(r"^/[a-zA-Z0-9_./-]+$")
+
+
+def _validate_api_path(endpoint: str) -> str:
+    """Sanitize an API path to prevent SSRF / path traversal."""
+    if not endpoint.startswith("/"):
+        endpoint = f"/{endpoint}"
+    parsed = urlparse(endpoint)
+    if parsed.scheme or parsed.netloc or ".." in endpoint or "@" in endpoint:
+        raise ValueError(f"Invalid API path: {endpoint}")
+    if not _SAFE_PATH.match(parsed.path):
+        raise ValueError(f"Invalid characters in API path: {endpoint}")
+    path = parsed.path
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+    return path
 
 
 def register(mcp) -> None:  # noqa: ANN001
@@ -19,8 +38,10 @@ def register(mcp) -> None:  # noqa: ANN001
         Args:
             endpoint: API path (e.g. '/api/children/', '/api/children/test/stats/').
         """
-        if not endpoint.startswith("/"):
-            endpoint = f"/{endpoint}"
+        try:
+            safe_path = _validate_api_path(endpoint)
+        except ValueError as e:
+            return {"error": str(e)}
 
         bb = get_bb_config()
         if not bb.get("api_key"):
@@ -30,7 +51,7 @@ def register(mcp) -> None:  # noqa: ANN001
         try:
             async with (
                 aiohttp.ClientSession() as session,
-                session.get(f"{bb['host']}{endpoint}", headers=headers) as resp,
+                session.get(f"{bb['host']}{safe_path}", headers=headers) as resp,
             ):
                 body = await resp.json()
                 return {"status": resp.status, "body": body}

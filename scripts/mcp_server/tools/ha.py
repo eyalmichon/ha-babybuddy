@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -115,6 +116,8 @@ def register(mcp) -> None:  # noqa: ANN001
         Args:
             entity_id: Full entity ID (e.g. 'sensor.test_last_change').
         """
+        if not re.match(r"^[a-z_]+\.[a-z0-9_]+$", entity_id):
+            return {"error": f"Invalid entity_id format: {entity_id}"}
         result = await api_request("GET", f"/api/states/{entity_id}")
         if "error" in result:
             return result
@@ -155,6 +158,8 @@ def register(mcp) -> None:  # noqa: ANN001
             service: Service name (e.g. 'turn_on', 'set_level').
             data: Optional service data dict.
         """
+        if not re.match(r"^[a-z_]+$", domain) or not re.match(r"^[a-z_]+$", service):
+            return {"error": f"Invalid domain/service format: {domain}/{service}"}
         return await api_request("POST", f"/api/services/{domain}/{service}", data or {})
 
     @mcp.tool

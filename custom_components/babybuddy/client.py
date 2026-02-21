@@ -28,11 +28,13 @@ class BabyBuddyClient:
         """Initialize the client."""
         LOGGER.debug("Initializing BabyBuddyClient")
         self.headers = {"Authorization": f"Token {api_key}"}
-        LOGGER.debug(
-            f"Client API Token, obfuscated: {api_key[:4]}{'.' * (len(api_key) - 8)}{api_key[-4:]}"
-        )
+        if len(api_key) > 8:
+            obfuscated = f"{api_key[:4]}{'.' * (len(api_key) - 8)}{api_key[-4:]}"
+        else:
+            obfuscated = "****"
+        LOGGER.debug("Client API Token, obfuscated: %s", obfuscated)
         self.url = f"{host}:{port}{path or ''}"
-        LOGGER.debug(f"Client URL: {self.url}")
+        LOGGER.debug("Client URL: %s", self.url)
         self.session = session
         self.endpoints: dict[str, str] = {}
 
@@ -53,35 +55,24 @@ class BabyBuddyClient:
                 raise_for_status=True,
             )
 
-        LOGGER.debug(f"GET response: {await resp.text()}")
         return await resp.json()
 
     async def async_post(
         self, endpoint: str, data: dict[str, Any], call_time: datetime | None = None
     ) -> None:
         """POST request to babybuddy API."""
-        LOGGER.debug(f"POST data: {data}")
+        LOGGER.debug("POST to %s", endpoint)
         try:
             async with asyncio.timeout(10):
                 resp = await self.session.post(
                     self.endpoints[endpoint],
-                    headers=self.headers,
-                    data=data,
+                    headers={**self.headers, "Content-Type": "application/json"},
+                    json=data,
                 )
 
             if resp.status != HTTPStatus.CREATED:
                 error = await resp.json()
-                LOGGER.error(
-                    f"Could not create {endpoint}. error: {error}. Please upgrade to babybuddy v1.11.0. In the meantime, attempting to use 'now()'..."
-                )
-
-                # crude backward compatibility fix for babybuddy < v1.11.0
-                if error == {"time": ["This field is required."]}:
-                    data[ATTR_TIME] = call_time
-                    await self.async_post(endpoint, data)
-                if error == {"date": ["This field is required."]}:
-                    data[ATTR_DATE] = call_time
-                    await self.async_post(endpoint, data)
+                LOGGER.error("Could not create %s: %s", endpoint, error)
 
         except (AsyncIOTimeoutError, ClientError) as error:
             LOGGER.error(error)
@@ -94,13 +85,13 @@ class BabyBuddyClient:
             async with asyncio.timeout(10):
                 resp = await self.session.patch(
                     f"{self.endpoints[endpoint]}{entry}/",
-                    headers=self.headers,
-                    data=data,
+                    headers={**self.headers, "Content-Type": "application/json"},
+                    json=data,
                 )
 
             if resp.status != HTTPStatus.OK:
                 error = await resp.json()
-                LOGGER.error(f"Could not update {endpoint}/{entry}. error: {error}")
+                LOGGER.error("Could not update %s/%s: %s", endpoint, entry, error)
 
         except (AsyncIOTimeoutError, ClientError) as error:
             LOGGER.error(error)

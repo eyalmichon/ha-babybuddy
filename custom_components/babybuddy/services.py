@@ -350,9 +350,33 @@ async def _async_handle_service(
 
     # Special case: DELETE method (delete_last_entry)
     if svc_def.get("method") == "DELETE":
-        entity = call.hass.states.get(call.data.get(ATTR_ENTITY_ID))
-        key = call.data[ATTR_ENTITY_ID].split(".")[1].split("_")[3]
-        await coordinator.client.async_delete(key, entity.attributes.get(ATTR_ID))
+        entity_id = call.data.get(ATTR_ENTITY_ID)
+        entity = call.hass.states.get(entity_id) if entity_id else None
+        if not entity:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="entry_not_loaded",
+            )
+        parts = entity_id.split(".")
+        if len(parts) < 2:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="entry_not_loaded",
+            )
+        slug_parts = parts[1].split("_")
+        if len(slug_parts) < 4:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="entry_not_loaded",
+            )
+        key = slug_parts[3]
+        entry_id = entity.attributes.get(ATTR_ID)
+        if entry_id is None:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="entry_not_loaded",
+            )
+        await coordinator.client.async_delete(key, entry_id)
         await coordinator.async_request_refresh()
         return
 
