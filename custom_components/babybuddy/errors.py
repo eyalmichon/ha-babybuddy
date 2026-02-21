@@ -13,7 +13,3 @@ class ConnectError(BabyBuddyError):
 
 class AuthorizationError(BabyBuddyError):
     """Raise authorization exception."""
-
-
-class ValidationError(BabyBuddyError):
-    """Raise an exception if required field value is not valid."""

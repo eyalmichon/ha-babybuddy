@@ -70,9 +70,40 @@
       }
     }
   },
+  "issues": {
+    "mqtt_discovery_conflict": {
+      "title": "A auto-descoberta MQTT do Baby Buddy ainda está ativa",
+      "description": "A integração Baby Buddy limpou {count} entidades auto-descobertas por MQTT que seriam duplicadas. Para evitar que isto se repita, desative **Publicar configurações de descoberta MQTT do Home Assistant** nas definições do Baby Buddy em Configuração > Home Assistant.",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Desativar auto-descoberta MQTT no Baby Buddy",
+            "description": "O Baby Buddy está a publicar configurações de descoberta MQTT que criam **entidades duplicadas** ao lado desta integração.\n\nMarque a caixa abaixo e clique em **Submeter** para permitir que esta integração desative a definição automaticamente através da API do Baby Buddy.\n\nEm alternativa, deixe desmarcado e clique em **Submeter** para ignorar — pode desativá-la manualmente no Baby Buddy em **Configuração > Home Assistant**.",
+            "data": {
+              "confirm": "Desativar auto-descoberta MQTT no Baby Buddy"
+            }
+          }
+        },
+        "abort": {
+          "entry_not_loaded": "A integração Baby Buddy não está carregada. Recarregue-a e tente novamente.",
+          "api_call_failed": "Não foi possível contactar a API do Baby Buddy. O Baby Buddy pode estar offline ou precisa de ser atualizado para uma versão que suporte esta definição. Pode desativar o toggle manualmente no Baby Buddy em Configuração > Home Assistant.",
+          "skipped_by_user": "Pode desativar a auto-descoberta MQTT manualmente no Baby Buddy em Configuração > Home Assistant."
+        }
+      }
+    }
+  },
   "exceptions": {
     "entry_not_loaded": {
       "message": "A integração do Baby Buddy não está carregada. Verifique a sua configuração."
+    },
+    "time_in_future": {
+      "message": "A hora não pode ser no futuro."
+    },
+    "timer_not_found": {
+      "message": "Temporizador não encontrado ou parado. O temporizador deve estar ativo."
+    },
+    "invalid_select_option": {
+      "message": "Opção inválida para {entity_id}: {option}"
     }
   }
 }

@@ -69,9 +69,40 @@
       }
     }
   },
+  "issues": {
+    "mqtt_discovery_conflict": {
+      "title": "Baby Buddy MQTT auto-discovery is still enabled",
+      "description": "The Baby Buddy integration cleaned up {count} MQTT auto-discovered entities that would have been duplicates. To prevent this from recurring, disable **Publish Home Assistant MQTT discovery configs** in your Baby Buddy settings under Configuration > Home Assistant.",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Disable MQTT auto-discovery on Baby Buddy",
+            "description": "Baby Buddy is publishing MQTT discovery configs that create **duplicate entities** alongside this integration.\n\nCheck the box below and click **Submit** to let this integration disable the setting automatically via the Baby Buddy API.\n\nAlternatively, leave it unchecked and click **Submit** to dismiss this — you can disable it manually in Baby Buddy under **Configuration > Home Assistant**.",
+            "data": {
+              "confirm": "Disable MQTT auto-discovery on Baby Buddy"
+            }
+          }
+        },
+        "abort": {
+          "entry_not_loaded": "The Baby Buddy integration is not loaded. Please reload it and try again.",
+          "api_call_failed": "Could not reach the Baby Buddy API. Either Baby Buddy is offline, or it needs to be updated to a version that supports this setting. You can disable the toggle manually in Baby Buddy under Configuration > Home Assistant.",
+          "skipped_by_user": "You can disable MQTT auto-discovery manually in Baby Buddy under Configuration > Home Assistant."
+        }
+      }
+    }
+  },
   "exceptions": {
     "entry_not_loaded": {
       "message": "The Baby Buddy integration is not loaded. Please check your configuration."
+    },
+    "time_in_future": {
+      "message": "Time cannot be in the future."
+    },
+    "timer_not_found": {
+      "message": "Timer not found or stopped. Timer must be active."
+    },
+    "invalid_select_option": {
+      "message": "Invalid option for {entity_id}: {option}"
     }
   }
 }

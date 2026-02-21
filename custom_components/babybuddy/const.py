@@ -6,6 +6,8 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
+from packaging.version import Version
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -15,6 +17,7 @@ from homeassistant.components.sensor import SensorEntityDescription
 LOGGER = logging.getLogger(__package__)
 
 DOMAIN: Final[str] = "babybuddy"
+MIN_BB_VERSION: Final = Version("2.10.0")
 
 CONF_FEEDING_UNIT: Final[str] = "feedings"
 CONF_MQTT_ENABLED: Final[str] = "mqtt_enabled"
@@ -42,8 +45,5 @@ class BabyBuddyEntityDescription(SensorEntityDescription):
 class BabyBuddySelectDescription(SelectEntityDescription):
     """Describe Baby Buddy select entity."""
 
-
-ERR_TIME_FUTURE: Final[str] = "Time cannot be in the future."
-ERR_TIMER_NOT_FOUND: Final[str] = "Timer not found or stopped. Timer must be active."
 
 PLATFORMS: Final = ["binary_sensor", "sensor", "select", "switch"]

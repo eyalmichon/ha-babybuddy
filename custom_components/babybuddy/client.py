@@ -12,10 +12,11 @@ from aiohttp.client import ClientSession
 from aiohttp.client_exceptions import ClientError, ClientResponseError
 
 from homeassistant.const import ATTR_DATE, ATTR_TIME
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.util import dt as dt_util
 
-from .const import ERR_TIME_FUTURE, LOGGER
-from .errors import AuthorizationError, ConnectError, ValidationError
+from .const import DOMAIN, LOGGER
+from .errors import AuthorizationError, ConnectError
 
 
 class BabyBuddyClient:
@@ -132,6 +133,37 @@ class BabyBuddyClient:
             )
         return await resp.json()
 
+    async def async_patch_ha_settings(
+        self, data: dict[str, Any]
+    ) -> dict[str, Any]:
+        """PATCH Baby Buddy's HA-related settings."""
+        url = f"{self.url}/api/ha/settings"
+        async with asyncio.timeout(10):
+            LOGGER.debug("PATCH URL: %s data: %s", url, data)
+            resp = await self.session.patch(
+                url=url,
+                headers={**self.headers, "Content-Type": "application/json"},
+                json=data,
+                raise_for_status=True,
+            )
+        return await resp.json()
+
+    async def async_get_last_activities(
+        self,
+        child_slug: str,
+        endpoint_template: str,
+    ) -> dict[str, Any]:
+        """GET bulk last-activities for a child (includes stats)."""
+        url = f"{self.url}{endpoint_template.replace('{slug}', child_slug)}"
+        async with asyncio.timeout(10):
+            LOGGER.debug("GET URL: %s", url)
+            resp = await self.session.get(
+                url=url,
+                headers=self.headers,
+                raise_for_status=True,
+            )
+        return await resp.json()
+
     async def async_get_stats(
         self,
         child_slug: str,
@@ -166,5 +198,8 @@ def get_datetime_from_time(value: datetime | time) -> datetime:
     if value.tzinfo is None:
         value = value.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE)
     if value > dt_util.now():
-        raise ValidationError(ERR_TIME_FUTURE)
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="time_in_future",
+        )
     return value

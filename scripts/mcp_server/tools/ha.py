@@ -174,12 +174,36 @@ def register(mcp) -> None:  # noqa: ANN001
         with contextlib.suppress(FileNotFoundError, json.JSONDecodeError, KeyError):
             manifest_version = json.loads(manifest_path.read_text())["version"]
 
+        # Fetch Baby Buddy server version from the discovery endpoint
+        bb_server_version = None
+        if domain == "babybuddy":
+            try:
+                from mcp_server.config import get_bb_config
+
+                import aiohttp
+
+                bb = get_bb_config()
+                if bb.get("api_key"):
+                    headers = {"Authorization": f"Token {bb['api_key']}"}
+                    async with (
+                        aiohttp.ClientSession() as session,
+                        session.get(
+                            f"{bb['host']}/api/ha/discovery", headers=headers
+                        ) as resp,
+                    ):
+                        if resp.status == 200:
+                            discovery = await resp.json()
+                            bb_server_version = discovery.get("babybuddy_version")
+            except Exception:  # noqa: BLE001
+                pass
+
         entries = [
             {
                 "entry_id": e["entry_id"],
                 "state": e["state"],
                 "options": e.get("options", {}),
-                "version": manifest_version or f"{e.get('version')}.{e.get('minor_version')}",
+                "integration_version": manifest_version or f"{e.get('version')}.{e.get('minor_version')}",
+                **({"babybuddy_version": bb_server_version} if bb_server_version else {}),
             }
             for e in result["body"]
             if e.get("domain") == domain

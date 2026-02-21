@@ -9,6 +9,7 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.components.sensor.const import SensorDeviceClass, SensorStateClass
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.const import ATTR_ID, CONF_API_KEY, CONF_HOST, CONF_PATH, CONF_PORT
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.typing import StateType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -320,7 +321,14 @@ class BabyBuddySelect(CoordinatorEntity, SelectEntity, RestoreEntity):
     async def async_select_option(self, option: str) -> None:
         """Update the current selected option."""
         if option not in self.options:
-            raise ValueError(f"Invalid option for {self.entity_id}: {option}")
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="invalid_select_option",
+                translation_placeholders={
+                    "entity_id": self.entity_id,
+                    "option": option,
+                },
+            )
 
         self._attr_current_option = option
         self.async_write_ha_state()

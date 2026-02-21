@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from homeassistant.config_entries import ConfigEntry
+from packaging.version import Version
+
+from homeassistant.config_entries import ConfigEntry, ConfigEntryError
 from homeassistant.const import CONF_PATH
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.typing import ConfigType
 
-from .const import CONFIG_FLOW_VERSION, DEFAULT_PATH, LOGGER, PLATFORMS
+from .const import CONFIG_FLOW_VERSION, DEFAULT_PATH, LOGGER, MIN_BB_VERSION, PLATFORMS
 from .coordinator import BabyBuddyConfigEntry, BabyBuddyCoordinator, BabyBuddyData
 from .services import async_setup_services
 
@@ -36,10 +38,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: BabyBuddyConfigEntry) ->
 
     await coordinator.async_config_entry_first_refresh()
 
+    bb_version_str = coordinator.metadata.get("babybuddy_version")
+    if bb_version_str is None:
+        raise ConfigEntryError(
+            f"This integration requires Baby Buddy {MIN_BB_VERSION} or later. "
+            "Please update your Baby Buddy server."
+        )
+    bb_version = Version(bb_version_str)
+    if bb_version < MIN_BB_VERSION:
+        raise ConfigEntryError(
+            f"Baby Buddy {bb_version} is too old. "
+            f"This integration requires {MIN_BB_VERSION} or later."
+        )
+    LOGGER.info("Baby Buddy version %s (minimum: %s)", bb_version, MIN_BB_VERSION)
+
     # Register services dynamically from discovery metadata
     await async_setup_services(hass, coordinator)
 
-    # Set up MQTT subscriptions after first data fetch (child slugs needed)
+    # Clean up any MQTT auto-discovered entities that BB may have created,
+    # then set up our own MQTT subscriptions for real-time data updates.
+    try:
+        await coordinator.cleanup_mqtt_discovery()
+    except Exception:
+        LOGGER.exception("Failed to clean up MQTT discovery topics")
+
     if entry.options.get("mqtt_enabled", False):
         try:
             await coordinator._setup_mqtt_subscriptions()

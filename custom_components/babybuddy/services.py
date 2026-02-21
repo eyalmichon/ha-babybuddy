@@ -15,8 +15,7 @@ from homeassistant.util import dt as dt_util
 from homeassistant.util import slugify
 
 from .client import get_datetime_from_time
-from .const import DOMAIN, ERR_TIMER_NOT_FOUND, LOGGER
-from .errors import ValidationError
+from .const import DOMAIN, LOGGER
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant, ServiceCall
@@ -109,7 +108,10 @@ async def _set_common_fields(
         child_id = data["child"]
         timer_data = coordinator.data[1].get(child_id, {}).get("timers", {})
         if not timer_data:
-            raise ValidationError(ERR_TIMER_NOT_FOUND)
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="timer_not_found",
+            )
         data["timer"] = timer_data[ATTR_ID]
     else:
         data["start"] = get_datetime_from_time(
@@ -358,20 +360,12 @@ async def _async_handle_service(
 
     # Timer-based services need common fields
     if svc_def.get("uses_timer"):
-        try:
-            data = await _set_common_fields(call, data, coordinator)
-        except ValidationError as error:
-            LOGGER.error(error)
-            return
+        data = await _set_common_fields(call, data, coordinator)
 
     # Apply datetime conversions for datetime-type fields
     for fname, fdef in svc_def.get("fields", {}).items():
         if fdef["type"] == "datetime" and fname in data and data[fname] is not None:
-            try:
-                data[fname] = get_datetime_from_time(data[fname])
-            except ValidationError as error:
-                LOGGER.error(error)
-                return
+            data[fname] = get_datetime_from_time(data[fname])
 
     # Apply transforms (e.g. diaper type -> wet/solid booleans, lowercase)
     _apply_transforms(data, svc_def, metadata)
