@@ -37,6 +37,7 @@ export class TimerBar extends LitElement {
       const path = e.composedPath();
       const isInside = path.includes(this);
       if (!isInside) {
+        if (this._editingTimerEntityId) this._editingTimerEntityId = null;
         if (this._expandedTimerId) this._expandedTimerId = null;
         if (this._startExpanded) this._startExpanded = false;
       }
@@ -45,6 +46,7 @@ export class TimerBar extends LitElement {
 
     this._boundKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        if (this._editingTimerEntityId) this._editingTimerEntityId = null;
         if (this._expandedTimerId) this._expandedTimerId = null;
         if (this._startExpanded) this._startExpanded = false;
       }
@@ -189,6 +191,10 @@ export class TimerBar extends LitElement {
 
   private _beginEdit(entity: HassEntity, e: Event): void {
     e.stopPropagation();
+    if (this._editingTimerEntityId && this._editingTimerEntityId !== entity.entity_id) {
+      const prev = this.timers.find(t => t.entity_id === this._editingTimerEntityId);
+      if (prev) this._commitRename(prev);
+    }
     this._editingTimerEntityId = entity.entity_id;
     this._editingName =
       (entity.attributes.timer_name as string) ?? "Timer";
@@ -322,7 +328,11 @@ export class TimerBar extends LitElement {
                     if (e.key === "Enter") this._commitRename(entity);
                     if (e.key === "Escape") this._cancelEdit();
                   }}
-                  @blur=${() => this._commitRename(entity)}
+                  @blur=${() => {
+                    if (this._editingTimerEntityId === entity.entity_id) {
+                      this._commitRename(entity);
+                    }
+                  }}
                   @click=${(e: Event) => e.stopPropagation()}
                 />
               `
