@@ -33,6 +33,7 @@ KNOWN_TRANSFORMS: dict[str, Any] = {
 DEVICE_CLASS_MAP: dict[str, SensorDeviceClass] = {
     "timestamp": SensorDeviceClass.TIMESTAMP,
     "temperature": SensorDeviceClass.TEMPERATURE,
+    "duration": SensorDeviceClass.DURATION,
 }
 
 STATE_CLASS_MAP: dict[str, SensorStateClass] = {

@@ -8,6 +8,7 @@ import type {
 } from "../types";
 import {
   timeSince,
+  formatDuration,
   extractActivityKey,
   labelForServiceKey,
   resolveIcon,
@@ -105,10 +106,14 @@ export class ActivityChips extends LitElement {
     );
     const label = labelForServiceKey(key);
     const dc = entity.attributes.device_class as string | undefined;
-    const value =
-      dc === "timestamp"
-        ? timeSince(entity.state)
-        : this.hass.formatEntityState(entity);
+    let value: string;
+    if (dc === "timestamp") {
+      value = timeSince(entity.state);
+    } else if (dc === "duration" && !isNaN(Number(entity.state))) {
+      value = formatDuration(Math.round(Number(entity.state)));
+    } else {
+      value = this.hass.formatEntityState(entity);
+    }
 
     const color = (entity.attributes.bb_color as string) ?? "";
     return { icon, label, value, color, entityId: entity.entity_id };

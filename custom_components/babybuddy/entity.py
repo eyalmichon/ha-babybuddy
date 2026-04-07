@@ -35,7 +35,7 @@ from .const import (
     BabyBuddySelectDescription,
 )
 from .coordinator import BabyBuddyCoordinator
-from .discovery import STATE_CLASS_MAP
+from .discovery import DEVICE_CLASS_MAP, STATE_CLASS_MAP
 
 _OPTIONS_KEY_ALIASES: dict[str, str] = {
     "pumping": "feedings",
@@ -247,6 +247,10 @@ class BabyBuddyStatsSensor(BabyBuddySensor):
         sc = stats_meta.get("state_class")
         if sc and sc in STATE_CLASS_MAP:
             self._attr_state_class = STATE_CLASS_MAP[sc]
+
+        dc = stats_meta.get("device_class")
+        if dc and dc in DEVICE_CLASS_MAP:
+            self._attr_device_class = DEVICE_CLASS_MAP[dc]
 
     @property
     def name(self) -> str:
