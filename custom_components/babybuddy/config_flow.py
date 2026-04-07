@@ -71,6 +71,25 @@ class BabyBuddyFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         self._reauth_unique_id: str | None = None
         self._discovered_info: dict[str, Any] = {}
 
+    async def _async_try_connect(
+        self, data: dict[str, Any]
+    ) -> dict[str, str]:
+        """Try to connect and return errors dict (empty on success)."""
+        try:
+            client = BabyBuddyClient(
+                data[CONF_HOST],
+                data[CONF_PORT],
+                data.get(CONF_PATH, DEFAULT_PATH),
+                data[CONF_API_KEY],
+                async_get_clientsession(self.hass),
+            )
+            await client.async_connect()
+        except AuthorizationError:
+            return {"api_key": "invalid_auth"}
+        except ConnectError:
+            return {"base": "cannot_connect"}
+        return {}
+
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -79,23 +98,11 @@ class BabyBuddyFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             await self.async_set_unique_id(
-                f"{user_input[CONF_HOST]}-{user_input[CONF_API_KEY]}"
+                f"{user_input[CONF_HOST]}:{user_input[CONF_PORT]}"
             )
             self._abort_if_unique_id_configured()
 
-            try:
-                client: BabyBuddyClient = BabyBuddyClient(
-                    user_input[CONF_HOST],
-                    user_input[CONF_PORT],
-                    user_input[CONF_PATH],
-                    user_input[CONF_API_KEY],
-                    async_get_clientsession(self.hass),
-                )
-                await client.async_connect()
-            except AuthorizationError:
-                errors["api_key"] = "invalid_auth"
-            except ConnectError:
-                errors["base"] = "cannot_connect"
+            errors = await self._async_try_connect(user_input)
 
             if not errors:
                 return self.async_create_entry(
@@ -142,19 +149,7 @@ class BabyBuddyFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             data = {**self._discovered_info, **user_input}
-            try:
-                client = BabyBuddyClient(
-                    data[CONF_HOST],
-                    data[CONF_PORT],
-                    data[CONF_PATH],
-                    data[CONF_API_KEY],
-                    async_get_clientsession(self.hass),
-                )
-                await client.async_connect()
-            except AuthorizationError:
-                errors["api_key"] = "invalid_auth"
-            except ConnectError:
-                errors["base"] = "cannot_connect"
+            errors = await self._async_try_connect(data)
 
             if not errors:
                 return self.async_create_entry(
@@ -181,26 +176,14 @@ class BabyBuddyFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         assert entry is not None
 
         if user_input is not None:
-            try:
-                client = BabyBuddyClient(
-                    user_input[CONF_HOST],
-                    user_input[CONF_PORT],
-                    user_input.get(CONF_PATH, DEFAULT_PATH),
-                    user_input[CONF_API_KEY],
-                    async_get_clientsession(self.hass),
-                )
-                await client.async_connect()
-            except AuthorizationError:
-                errors["api_key"] = "invalid_auth"
-            except ConnectError:
-                errors["base"] = "cannot_connect"
+            errors = await self._async_try_connect(user_input)
 
             if not errors:
                 new_data = {**entry.data, **user_input}
                 new_data.setdefault(CONF_PATH, DEFAULT_PATH)
                 return self.async_update_reload_and_abort(
                     entry,
-                    unique_id=f"{user_input[CONF_HOST]}-{user_input[CONF_API_KEY]}",
+                    unique_id=f"{user_input[CONF_HOST]}:{user_input[CONF_PORT]}",
                     data=new_data,
                     title=f"{DEFAULT_NAME} ({user_input[CONF_HOST]})",
                 )
@@ -244,19 +227,7 @@ class BabyBuddyFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             user_input[CONF_HOST] = existing_entry.data[CONF_HOST]
             user_input[CONF_PORT] = existing_entry.data[CONF_PORT]
             user_input[CONF_PATH] = existing_entry.data[CONF_PATH]
-            try:
-                client: BabyBuddyClient = BabyBuddyClient(
-                    user_input[CONF_HOST],
-                    user_input[CONF_PORT],
-                    user_input[CONF_PATH],
-                    user_input[CONF_API_KEY],
-                    async_get_clientsession(self.hass),
-                )
-                await client.async_connect()
-            except AuthorizationError:
-                errors["api_key"] = "invalid_auth"
-            except ConnectError:
-                errors["base"] = "cannot_connect"
+            errors = await self._async_try_connect(user_input)
 
             if not errors:
                 self.hass.config_entries.async_update_entry(

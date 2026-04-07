@@ -1,6 +1,10 @@
 {
   "domain": "babybuddy",
   "name": "Baby Buddy",
+  "dependencies": [
+    "frontend",
+    "http"
+  ],
   "after_dependencies": [
     "mqtt",
     "zeroconf"
@@ -18,5 +22,5 @@
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/eyalmichon/ha-babybuddy/issues",
   "requirements": [],
-  "version": "3.0.0"
+  "version": "3.0.11"
 }

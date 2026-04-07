@@ -6,10 +6,14 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from homeassistant import config_entries
+from homeassistant.components.sensor.const import ATTR_STATE_CLASS
+from homeassistant.const import ATTR_DEVICE_CLASS, ATTR_ICON
 from homeassistant.util import slugify
 from pytest_socket import _remove_restrictions
 
 from custom_components.babybuddy.const import DOMAIN
+from custom_components.babybuddy.discovery import DEVICE_CLASS_MAP, STATE_CLASS_MAP
+from custom_components.babybuddy.entity import child_device_name
 
 from .const import MOCK_CONFIG
 
@@ -19,6 +23,24 @@ if TYPE_CHECKING:
     from custom_components.babybuddy.coordinator import BabyBuddyCoordinator
 
 pytest_plugins = "pytest_homeassistant_custom_component"
+
+
+# ---------------------------------------------------------------------------
+# Shared assertion helpers
+# ---------------------------------------------------------------------------
+
+
+def assert_sensor_meta(state, meta: dict) -> None:
+    """Assert icon, device_class, and state_class match metadata."""
+    assert state.attributes[ATTR_ICON] == meta["icon"]
+
+    dc = meta.get("device_class")
+    if dc and dc in DEVICE_CLASS_MAP:
+        assert state.attributes[ATTR_DEVICE_CLASS] == DEVICE_CLASS_MAP[dc]
+
+    sc = meta.get("state_class")
+    if sc and sc in STATE_CLASS_MAP:
+        assert state.attributes[ATTR_STATE_CLASS] == STATE_CLASS_MAP[sc]
 
 
 # ---------------------------------------------------------------------------
@@ -35,38 +57,22 @@ def sensor_entity_id(
     metadata: dict[str, Any], child: dict[str, Any], sensor_key: str
 ) -> str:
     """Derive a sensor entity_id from metadata and child info."""
-    tmpl = metadata.get("child", {}).get(
-        "name_template", "{first_name} {last_name}"
-    )
-    device_name = tmpl.replace(
-        "{first_name}", child["first_name"]
-    ).replace("{last_name}", child["last_name"])
+    device_name = child_device_name(child, metadata)
     sensor_meta = find_sensor_meta(metadata, sensor_key)
     slug = slugify(f"{device_name} {sensor_meta['name']}")
     return f"sensor.{slug}"
 
 
-def switch_entity_id(metadata: dict[str, Any], child: dict[str, Any]) -> str:
-    """Derive the timer switch entity_id from metadata and child info."""
-    tmpl = metadata.get("child", {}).get(
-        "name_template", "{first_name} {last_name}"
-    )
-    device_name = tmpl.replace(
-        "{first_name}", child["first_name"]
-    ).replace("{last_name}", child["last_name"])
-    timer_name = metadata.get("timer", {}).get("name", "Timer")
-    slug = slugify(f"{device_name} {timer_name}")
-    return f"switch.{slug}"
+def button_entity_id(metadata: dict[str, Any], child: dict[str, Any]) -> str:
+    """Derive the start-timer button entity_id from metadata and child info."""
+    device_name = child_device_name(child, metadata)
+    slug = slugify(f"{device_name} start timer")
+    return f"button.{slug}"
 
 
 def child_entity_id(metadata: dict[str, Any], child: dict[str, Any]) -> str:
     """Derive the primary child sensor entity_id from metadata."""
-    tmpl = metadata.get("child", {}).get(
-        "name_template", "{first_name} {last_name}"
-    )
-    device_name = tmpl.replace(
-        "{first_name}", child["first_name"]
-    ).replace("{last_name}", child["last_name"])
+    device_name = child_device_name(child, metadata)
     return f"sensor.{slugify(device_name)}"
 
 

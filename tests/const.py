@@ -109,7 +109,7 @@ MOCK_SERVICE_ADD_DIAPER_CHANGE = {
     ATTR_TIME: MOCK_DATETIME_NOW,
     "notes": MOCK_TEXT,
     "type": "Wet and Solid",
-    "color": "Black",
+    "color": "black",
     "amount": MOCK_NUMBER,
     "tags": [MOCK_TEXT],
 }
@@ -149,8 +149,8 @@ MOCK_SERVICE_ADD_WEIGHT = {
     "tags": [MOCK_TEXT],
 }
 MOCK_SERVICE_ADD_FEEDING = {
-    "type": "Breast milk",
-    "method": "Bottle",
+    "type": "breast milk",
+    "method": "bottle",
     "amount": MOCK_NUMBER,
     "notes": MOCK_TEXT,
     "tags": [MOCK_TEXT],

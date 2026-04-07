@@ -2,26 +2,87 @@
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
+from homeassistant.components.button import ButtonEntity
 from homeassistant.components.select import SelectEntity
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.components.sensor.const import SensorDeviceClass, SensorStateClass
-from homeassistant.components.switch import SwitchEntity
-from homeassistant.const import ATTR_ID, CONF_API_KEY, CONF_HOST, CONF_PATH, CONF_PORT
+from homeassistant.const import (
+    ATTR_ID,
+    CONF_HOST,
+    CONF_PATH,
+    CONF_PORT,
+    UnitOfLength,
+    UnitOfMass,
+    UnitOfVolume,
+)
+from homeassistant.util.unit_system import METRIC_SYSTEM
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.typing import StateType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
-from .client import get_datetime_from_time
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
+
 from .const import (
+    ACTIVE_TIMERS_KEY,
     DOMAIN,
     BabyBuddyEntityDescription,
     BabyBuddySelectDescription,
 )
 from .coordinator import BabyBuddyCoordinator
+from .discovery import STATE_CLASS_MAP
+
+_OPTIONS_KEY_ALIASES: dict[str, str] = {
+    "pumping": "feedings",
+}
+
+def _is_metric(hass: HomeAssistant) -> bool:
+    return hass.config.units is METRIC_SYSTEM
+
+_UNIT_FALLBACKS: dict[str, Callable[[HomeAssistant], str]] = {
+    "temperature": lambda hass: hass.config.units.temperature_unit,
+    "weight": lambda hass: UnitOfMass.KILOGRAMS if _is_metric(hass) else UnitOfMass.POUNDS,
+    "height": lambda hass: UnitOfLength.CENTIMETERS if _is_metric(hass) else UnitOfLength.INCHES,
+    "head-circumference": lambda hass: UnitOfLength.CENTIMETERS if _is_metric(hass) else UnitOfLength.INCHES,
+    "pumping": lambda hass: UnitOfVolume.MILLILITERS if _is_metric(hass) else UnitOfVolume.FLUID_OUNCES,
+    "bmi": lambda _: "kg/m²",
+}
+
+
+def child_device_name(child: dict, metadata: dict) -> str:
+    """Derive the HA device name for a child from metadata name_template."""
+    name_template = metadata.get("child", {}).get(
+        "name_template", "{first_name} {last_name}"
+    )
+    return name_template.replace(
+        "{first_name}", child["first_name"]
+    ).replace("{last_name}", child["last_name"])
+
+
+def build_device_info(
+    coordinator: BabyBuddyCoordinator, child: dict
+) -> dict[str, Any]:
+    """Build a consistent device_info dict for a child entity."""
+    child_meta = coordinator.metadata.get("child", {})
+    dashboard_path = child_meta.get(
+        "dashboard_path", "/children/{slug}/dashboard/"
+    ).replace("{slug}", child["slug"])
+    device_name = child_device_name(child, coordinator.metadata)
+    return {
+        "configuration_url": (
+            f"{coordinator.config_entry.data[CONF_HOST]}"
+            f":{coordinator.config_entry.data[CONF_PORT]}"
+            f"{coordinator.config_entry.data.get(CONF_PATH) or ''}"
+            f"{dashboard_path}"
+        ),
+        "identifiers": {(DOMAIN, child[ATTR_ID])},
+        "name": device_name,
+    }
 
 
 class BabyBuddySensor(CoordinatorEntity, SensorEntity):
@@ -34,19 +95,7 @@ class BabyBuddySensor(CoordinatorEntity, SensorEntity):
         """Initialize the sensor."""
         super().__init__(coordinator)
         self.child = child
-        child_meta = coordinator.metadata.get("child", {})
-        dashboard_path = child_meta.get(
-            "dashboard_path", "/children/{slug}/dashboard/"
-        ).replace("{slug}", child["slug"])
-        name_template = child_meta.get("name_template", "{first_name} {last_name}")
-        device_name = name_template.replace(
-            "{first_name}", child["first_name"]
-        ).replace("{last_name}", child["last_name"])
-        self._attr_device_info = {
-            "configuration_url": f"{coordinator.config_entry.data[CONF_HOST]}:{coordinator.config_entry.data[CONF_PORT]}{coordinator.config_entry.data.get(CONF_PATH) or ''}{dashboard_path}",
-            "identifiers": {(DOMAIN, child[ATTR_ID])},
-            "name": device_name,
-        }
+        self._attr_device_info = build_device_info(coordinator, child)
 
 
 class BabyBuddyChildSensor(BabyBuddySensor):
@@ -58,7 +107,7 @@ class BabyBuddyChildSensor(BabyBuddySensor):
 
         self._attr_name = None  # Primary device entity: uses device name
         self._attr_unique_id = (
-            f"{coordinator.config_entry.data[CONF_API_KEY]}-{child[ATTR_ID]}"
+            f"{coordinator.config_entry.entry_id}-{child[ATTR_ID]}"
         )
         child_meta = coordinator.metadata.get("child", {})
         self._attr_native_value = child[child_meta.get("state_field", "birth_date")]
@@ -95,7 +144,7 @@ class BabyBuddyChildDataSensor(BabyBuddySensor):
         super().__init__(coordinator, child)
 
         self.entity_description = description
-        self._attr_unique_id = f"{self.coordinator.config_entry.data[CONF_API_KEY]}-{child[ATTR_ID]}-{description.key}"
+        self._attr_unique_id = f"{self.coordinator.config_entry.entry_id}-{child[ATTR_ID]}-{description.key}"
 
     @property
     def name(self) -> str | None:
@@ -113,11 +162,11 @@ class BabyBuddyChildDataSensor(BabyBuddySensor):
         """Return entity state."""
         if not self.coordinator.data:
             return None
-        if self.child[ATTR_ID] not in self.coordinator.data[1]:
-            return None
-        data: dict[str, str] = self.coordinator.data[1][self.child[ATTR_ID]][
-            self.entity_description.key
-        ]
+        data: dict[str, str] = (
+            self.coordinator.data.child_data
+            .get(self.child[ATTR_ID], {})
+            .get(self.entity_description.key, {})
+        )
         if not data:
             return None
         if callable(self.entity_description.state_key):
@@ -133,32 +182,46 @@ class BabyBuddyChildDataSensor(BabyBuddySensor):
         attrs: dict[str, Any] = {}
         if not self.coordinator.data:
             return attrs
-        if self.child[ATTR_ID] in self.coordinator.data[1]:
-            attrs = self.coordinator.data[1][self.child[ATTR_ID]][
-                self.entity_description.key
-            ]
-            if self.entity_description.key == "changes":
-                mapping = (
-                    self.coordinator.metadata.get("transforms", {})
-                    .get("diaper_type_to_booleans", {})
-                    .get("mapping", {})
-                )
-                wet = attrs.get("wet", False)
-                solid = attrs.get("solid", False)
-                for label, bools in mapping.items():
-                    if bools.get("wet") == wet and bools.get("solid") == solid:
-                        attrs["descriptive"] = label
-                        break
+        data = (
+            self.coordinator.data.child_data
+            .get(self.child[ATTR_ID], {})
+            .get(self.entity_description.key, {})
+        )
+        if data:
+            attrs = dict(data)
+            rt_name = self.entity_description.reverse_transform
+            if rt_name:
+                transform = self.coordinator.metadata.get("transforms", {}).get(rt_name, {})
+                if transform.get("type") == "mapping":
+                    mapping = transform.get("mapping", {})
+                    for label, expected in mapping.items():
+                        if all(attrs.get(k) == v for k, v in expected.items()):
+                            attrs["descriptive"] = label
+                            break
+
+        if self.entity_description.group:
+            attrs["bb_group"] = self.entity_description.group
+        if self.entity_description.color:
+            attrs["bb_color"] = self.entity_description.color
 
         return attrs
 
     @property
     def native_unit_of_measurement(self) -> str | None:
         """Return entity unit of measurement."""
-        return self.coordinator.config_entry.options.get(
-            self.entity_description.key,
-            self.entity_description.native_unit_of_measurement,
+        options = self.coordinator.config_entry.options
+        key = self.entity_description.key
+        from_options = options.get(key) or options.get(
+            _OPTIONS_KEY_ALIASES.get(key, key)
         )
+        if from_options:
+            return from_options
+        if self.entity_description.native_unit_of_measurement:
+            return self.entity_description.native_unit_of_measurement
+        fallback = _UNIT_FALLBACKS.get(key)
+        if fallback:
+            return fallback(self.hass)
+        return None
 
 
 class BabyBuddyStatsSensor(BabyBuddySensor):
@@ -174,22 +237,16 @@ class BabyBuddyStatsSensor(BabyBuddySensor):
         super().__init__(coordinator, child)
         self._stats_meta = stats_meta
         self._attr_unique_id = (
-            f"{coordinator.config_entry.data[CONF_API_KEY]}"
+            f"{coordinator.config_entry.entry_id}"
             f"-{child[ATTR_ID]}-stats-{stats_meta['key']}"
         )
         self._attr_icon = stats_meta.get("icon")
         if stats_meta.get("unit_of_measurement"):
             self._attr_native_unit_of_measurement = stats_meta["unit_of_measurement"]
 
-        # Map string state_class to HA enum
-        _sc_map = {
-            "measurement": SensorStateClass.MEASUREMENT,
-            "total": SensorStateClass.TOTAL,
-            "total_increasing": SensorStateClass.TOTAL_INCREASING,
-        }
         sc = stats_meta.get("state_class")
-        if sc and sc in _sc_map:
-            self._attr_state_class = _sc_map[sc]
+        if sc and sc in STATE_CLASS_MAP:
+            self._attr_state_class = STATE_CLASS_MAP[sc]
 
     @property
     def name(self) -> str:
@@ -201,8 +258,11 @@ class BabyBuddyStatsSensor(BabyBuddySensor):
         """Return the stats dict for this child, or empty dict."""
         if not self.coordinator.data:
             return {}
-        child_data = self.coordinator.data[1].get(self.child[ATTR_ID], {})
-        return child_data.get("stats", {})
+        return (
+            self.coordinator.data.child_data
+            .get(self.child[ATTR_ID], {})
+            .get("stats", {})
+        )
 
     @property
     def native_value(self) -> StateType:
@@ -211,13 +271,25 @@ class BabyBuddyStatsSensor(BabyBuddySensor):
         return self._stats.get(field)
 
     @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return stats sensor attributes including group metadata."""
+        attrs: dict[str, Any] = {}
+        group = self._stats_meta.get("group", "")
+        if group:
+            attrs["bb_group"] = group
+        color = self._stats_meta.get("color", "")
+        if color:
+            attrs["bb_color"] = color
+        return attrs
+
+    @property
     def available(self) -> bool:
         """Return True if coordinator data is available."""
         return bool(self.coordinator.data)
 
 
-class BabyBuddyChildTimerSwitch(CoordinatorEntity, SwitchEntity):
-    """Representation of a babybuddy timer switch."""
+class BabyBuddyStartTimerButton(CoordinatorEntity, ButtonEntity):
+    """Button to start a new timer for a child."""
 
     _attr_has_entity_name = True
     coordinator: BabyBuddyCoordinator
@@ -227,68 +299,96 @@ class BabyBuddyChildTimerSwitch(CoordinatorEntity, SwitchEntity):
         coordinator: BabyBuddyCoordinator,
         child: dict,
     ) -> None:
-        """Initialize the sensor."""
+        """Initialize the button."""
         super().__init__(coordinator)
         self.child = child
-        timer_meta = coordinator.metadata.get("timer", {})
-        self._timer_endpoint = timer_meta.get("endpoint", "timers")
-        self._attr_name = timer_meta.get("name", "Timer")
+        self._attr_name = "Start timer"
         self._attr_unique_id = (
-            f"{self.coordinator.config_entry.data[CONF_API_KEY]}-{child[ATTR_ID]}-timer"
+            f"{coordinator.config_entry.entry_id}"
+            f"-{child[ATTR_ID]}-start-timer"
         )
-        self._attr_icon = timer_meta.get("icon", "mdi:timer-sand")
-        child_meta = coordinator.metadata.get("child", {})
-        name_template = child_meta.get("name_template", "{first_name} {last_name}")
-        device_name = name_template.replace(
-            "{first_name}", child["first_name"]
-        ).replace("{last_name}", child["last_name"])
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, child[ATTR_ID])},
-            "name": device_name,
-        }
+        self._attr_icon = "mdi:timer-plus"
+        self._attr_device_info = build_device_info(coordinator, child)
+
+    async def async_press(self) -> None:
+        """Start a new timer by calling the babybuddy.start_timer service."""
+        await self.hass.services.async_call(
+            DOMAIN,
+            "start_timer",
+            {"child": self.entity_id},
+        )
+
+
+class BabyBuddyTimerSensor(CoordinatorEntity, SensorEntity):
+    """Sensor representing a single active Baby Buddy timer.
+
+    State is the timer's start timestamp (device_class=TIMESTAMP) so the
+    value is stable while the timer runs (no unnecessary recorder writes).
+    Frontend cards derive elapsed time client-side.
+    """
+
+    _attr_has_entity_name = True
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    coordinator: BabyBuddyCoordinator
+
+    def __init__(
+        self,
+        coordinator: BabyBuddyCoordinator,
+        child: dict,
+        timer: dict,
+    ) -> None:
+        """Initialize the timer sensor."""
+        super().__init__(coordinator)
+        self.child = child
+        self._timer_id: int = timer[ATTR_ID]
+        timer_name = timer.get("name") or f"Timer {self._timer_id}"
+        self._attr_name = timer_name
+        self._attr_unique_id = (
+            f"{coordinator.config_entry.entry_id}"
+            f"-{child[ATTR_ID]}-timer-{self._timer_id}"
+        )
+        self._attr_icon = "mdi:timer-sand"
+        self._attr_device_info = build_device_info(coordinator, child)
 
     @property
-    def _timer_data(self) -> dict[str, Any]:
-        """Return the current timer data dict, or empty dict if unavailable."""
-        child_data = self.coordinator.data[1].get(self.child[ATTR_ID], {})
-        timer_data = child_data.get(self._timer_endpoint)
-        return timer_data if isinstance(timer_data, dict) else {}
+    def _timer_data(self) -> dict[str, Any] | None:
+        """Find this timer in the coordinator's timer list."""
+        if not self.coordinator.data:
+            return None
+        child_entry = self.coordinator.data.child_data.get(self.child[ATTR_ID], {})
+        for t in child_entry.get(ACTIVE_TIMERS_KEY, []):
+            if t.get(ATTR_ID) == self._timer_id:
+                return t
+        return None
 
     @property
-    def is_on(self) -> bool:
-        """Return entity state."""
-        timer_data = self._timer_data
-        if not timer_data:
-            return False
-        # In Babybuddy 2.0 'active' is not in the JSON response, so return
-        # True if any timers are returned, as only active timers are
-        # returned.
-        return timer_data.get("active", True)
+    def available(self) -> bool:
+        """Timer is available only while it exists in BB."""
+        return self._timer_data is not None
+
+    @property
+    def native_value(self) -> StateType:
+        """Return the timer start timestamp."""
+        timer = self._timer_data
+        if not timer:
+            return None
+        start = timer.get("start")
+        if start is None:
+            return None
+        return dt_util.parse_datetime(start)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return entity specific state attributes for babybuddy."""
-        if self.is_on:
-            return self._timer_data
-        return {}
-
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Start a new timer."""
-        data = {
-            "child": self.child[ATTR_ID],
-            "start": get_datetime_from_time(dt_util.now()),
+        """Expose timer metadata as attributes."""
+        timer = self._timer_data
+        if not timer:
+            return {}
+        return {
+            "timer_id": timer.get(ATTR_ID),
+            "timer_name": timer.get("name"),
+            "child": timer.get("child"),
+            "duration": timer.get("duration"),
         }
-        await self.coordinator.client.async_post(self._timer_endpoint, data)
-        await self.coordinator.async_request_refresh()
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        """Delete active timer."""
-        timer_data = self._timer_data
-        timer_id = timer_data.get(ATTR_ID)
-        if timer_id is None:
-            return
-        await self.coordinator.client.async_delete(self._timer_endpoint, timer_id)
-        await self.coordinator.async_request_refresh()
 
 
 class BabyBuddySelect(CoordinatorEntity, SelectEntity, RestoreEntity):
@@ -306,7 +406,7 @@ class BabyBuddySelect(CoordinatorEntity, SelectEntity, RestoreEntity):
         """Initialize the Babybuddy select entity."""
         super().__init__(coordinator)
         self._attr_unique_id = (
-            f"{self.coordinator.config_entry.data[CONF_API_KEY]}-{entity_description.key}"
+            f"{self.coordinator.config_entry.entry_id}-{entity_description.key}"
         )
         self._attr_options = entity_description.options
         self.entity_description = entity_description

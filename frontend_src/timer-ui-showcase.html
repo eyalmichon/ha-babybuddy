@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Start Timer &mdash; Button Transform Patterns</title>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#111318;--card:#1c1e24;--card-border:#2a2d35;
+    --primary:#4a90d9;--primary-text:#fff;--text:#e1e3e8;--text-dim:#888d99;
+    --danger:#db4437;--divider:#2e3038;--hover:rgba(255,255,255,.06);
+    --radius:14px;--shadow:0 4px 24px rgba(0,0,0,.4);
+  }
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);padding:24px;line-height:1.5}
+  h1{text-align:center;font-size:1.4rem;margin-bottom:6px;font-weight:600}
+  .subtitle{text-align:center;color:var(--text-dim);margin-bottom:32px;font-size:.85rem}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:28px;max-width:1200px;margin:0 auto}
+  .demo{background:var(--card);border:1px solid var(--card-border);border-radius:var(--radius);overflow:visible;position:relative}
+  .demo-title{padding:14px 16px 0;font-weight:600;font-size:.9rem;color:var(--primary)}
+  .demo-desc{padding:4px 16px 12px;font-size:.75rem;color:var(--text-dim)}
+  .demo-body{padding:0 16px 16px;min-height:180px;position:relative;display:flex;flex-direction:column;justify-content:flex-end}
+  .mock-timer{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:12px;background:var(--primary);color:var(--primary-text);margin-bottom:10px;font-size:.85rem}
+  .mock-timer .ti{font-variant-numeric:tabular-nums;flex:1;text-align:right;font-weight:600;font-size:1rem}
+  .mock-timer .icon{width:20px;height:20px;opacity:.8}
+  .plus-svg{width:18px;height:18px;fill:currentColor}
+
+  /* Shared base button */
+  .start-btn{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:10px;border:1px dashed var(--divider);border-radius:12px;background:none;color:var(--text);cursor:pointer;font-size:.85rem;font-family:inherit;font-weight:500;transition:all .25s}
+  .start-btn:hover{background:var(--hover);border-color:var(--primary);color:var(--primary)}
+  .start-btn:active{transform:scale(.98)}
+  .start-btn svg{width:18px;height:18px;fill:currentColor}
+
+  /* ======== 1. ACCORDION REVEAL ======== */
+  .accordion-shell{border:1px solid var(--divider);border-radius:12px;overflow:hidden;transition:border-color .25s}
+  .accordion-shell.open{border-color:var(--primary)}
+  .accordion-trigger{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:10px;border:none;background:none;color:var(--text);cursor:pointer;font-size:.85rem;font-family:inherit;font-weight:500;transition:all .25s}
+  .accordion-trigger:hover{color:var(--primary)}
+  .accordion-trigger svg{width:18px;height:18px;fill:currentColor;transition:transform .25s}
+  .accordion-trigger.open svg{transform:rotate(45deg)}
+  .accordion-trigger.open{color:var(--primary);background:rgba(74,144,217,.06)}
+  .accordion-items{max-height:0;overflow:hidden;transition:max-height .3s ease}
+  .accordion-items.open{max-height:300px}
+  .accordion-item{display:flex;align-items:center;padding:10px 14px;border-top:1px solid var(--divider);cursor:pointer;font-size:.85rem;transition:background .12s;gap:8px}
+  .accordion-item:hover{background:rgba(74,144,217,.08)}
+  .accordion-item .dot{width:6px;height:6px;border-radius:50%;background:var(--primary);flex-shrink:0}
+  .accordion-item:last-child{border-radius:0 0 11px 11px}
+
+  /* ======== 2. SLIDE CAROUSEL ======== */
+  .carousel-shell{border:1px solid var(--divider);border-radius:12px;overflow:hidden;position:relative;height:42px;transition:border-color .25s}
+  .carousel-shell.open{border-color:var(--primary)}
+  .carousel-inner{display:flex;align-items:center;height:100%;transition:transform .3s ease}
+  .carousel-face{display:flex;align-items:center;justify-content:center;gap:6px;min-width:100%;height:100%;cursor:pointer;font-size:.85rem;font-weight:500;color:var(--text);transition:color .15s}
+  .carousel-face:hover{color:var(--primary)}
+  .carousel-face svg{width:18px;height:18px;fill:currentColor}
+  .carousel-options{display:flex;min-width:100%;height:100%;align-items:center;padding:0 6px;gap:4px;overflow-x:auto;scrollbar-width:none}
+  .carousel-options::-webkit-scrollbar{display:none}
+  .carousel-opt{flex-shrink:0;padding:5px 14px;border-radius:20px;border:1px solid var(--divider);background:none;color:var(--text);font-size:.8rem;font-family:inherit;font-weight:500;cursor:pointer;white-space:nowrap;transition:all .15s}
+  .carousel-opt:hover{background:var(--primary);color:var(--primary-text);border-color:var(--primary)}
+  .carousel-close{flex-shrink:0;width:30px;height:30px;border-radius:50%;border:1px solid var(--divider);background:none;color:var(--text-dim);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:1rem;transition:all .15s}
+  .carousel-close:hover{border-color:var(--danger);color:var(--danger)}
+
+  /* ======== 3. STRETCH STACK ======== */
+  .stretch-shell{border:1px solid var(--divider);border-radius:12px;overflow:hidden;transition:border-color .25s}
+  .stretch-shell.open{border-color:var(--primary)}
+  .stretch-trigger{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:10px;border:none;background:none;color:var(--text);cursor:pointer;font-size:.85rem;font-family:inherit;font-weight:500;transition:all .2s}
+  .stretch-trigger:hover{color:var(--primary)}
+  .stretch-trigger svg{width:18px;height:18px;fill:currentColor;transition:transform .25s}
+  .stretch-trigger.open svg{transform:rotate(45deg)}
+  .stretch-trigger.open{color:var(--primary-text);background:var(--primary)}
+  .stretch-grid{display:grid;grid-template-columns:1fr 1fr;max-height:0;overflow:hidden;transition:max-height .3s ease,padding .3s}
+  .stretch-grid.open{max-height:200px;padding:6px}
+  .stretch-cell{padding:10px 8px;text-align:center;border-radius:8px;cursor:pointer;font-size:.82rem;font-weight:500;transition:background .12s}
+  .stretch-cell:hover{background:rgba(74,144,217,.1);color:var(--primary)}
+
+  /* ======== 4. TAB MORPH ======== */
+  .tab-shell{border-radius:12px;overflow:hidden;border:1px solid var(--divider);transition:border-color .2s}
+  .tab-shell.open{border-color:var(--primary)}
+  .tab-bar{display:flex;width:100%;transition:all .2s}
+  .tab-trigger{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:10px;border:none;background:none;color:var(--text);cursor:pointer;font-size:.85rem;font-family:inherit;font-weight:500;transition:all .2s}
+  .tab-trigger:hover{color:var(--primary)}
+  .tab-trigger svg{width:18px;height:18px;fill:currentColor}
+  .tab-segment{flex:1;padding:10px 2px;border:none;background:none;color:var(--text);cursor:pointer;font-size:.78rem;font-family:inherit;font-weight:500;transition:all .15s;border-right:1px solid rgba(74,144,217,.15);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tab-segment:last-of-type{border-right:none}
+  .tab-segment:hover{background:var(--primary);color:var(--primary-text)}
+  .tab-x{flex-shrink:0;width:38px;padding:10px 0;border:none;background:rgba(74,144,217,.06);color:var(--text-dim);cursor:pointer;font-size:.9rem;display:flex;align-items:center;justify-content:center;transition:all .15s}
+  .tab-x:hover{color:var(--danger);background:rgba(219,68,55,.08)}
+
+  /* ======== 5. REVEAL DRAWER ======== */
+  .drawer-shell{border:1px solid var(--divider);border-radius:12px;overflow:hidden;transition:border-color .25s}
+  .drawer-shell.open{border-color:var(--primary)}
+  .drawer-header{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:10px;border:none;background:none;color:var(--text);cursor:pointer;font-size:.85rem;font-family:inherit;font-weight:500;transition:all .2s}
+  .drawer-header:hover{color:var(--primary)}
+  .drawer-header svg{width:18px;height:18px;fill:currentColor;transition:transform .3s}
+  .drawer-header.open{background:rgba(74,144,217,.06);color:var(--primary)}
+  .drawer-header.open svg{transform:rotate(180deg)}
+  .drawer-body{max-height:0;overflow:hidden;transition:max-height .3s ease}
+  .drawer-body.open{max-height:300px}
+  .drawer-row{display:flex;align-items:center;gap:10px;padding:11px 16px;cursor:pointer;font-size:.85rem;transition:background .12s;border-top:1px solid var(--divider)}
+  .drawer-row:hover{background:rgba(74,144,217,.06)}
+  .drawer-row .num{width:20px;height:20px;border-radius:50%;background:var(--primary);color:var(--primary-text);display:flex;align-items:center;justify-content:center;font-size:.65rem;font-weight:700;flex-shrink:0}
+
+  /* ======== 6. ELASTIC PILL ROW ======== */
+  .elastic-shell{display:flex;gap:0;border-radius:12px;overflow:hidden;border:1px solid var(--divider);transition:all .3s}
+  .elastic-shell.open{border-color:var(--primary);gap:0}
+  .elastic-trigger{display:flex;align-items:center;justify-content:center;gap:6px;padding:10px;border:none;background:none;color:var(--text);cursor:pointer;font-size:.85rem;font-family:inherit;font-weight:500;transition:all .3s;flex:1;white-space:nowrap}
+  .elastic-trigger:hover{color:var(--primary)}
+  .elastic-trigger svg{width:18px;height:18px;fill:currentColor;transition:transform .3s}
+  .elastic-trigger.shrunk{flex:0 0 42px;padding:10px;background:var(--primary);color:var(--primary-text)}
+  .elastic-trigger.shrunk svg{transform:rotate(45deg)}
+  .elastic-trigger.shrunk span{display:none}
+  .elastic-opts{display:flex;flex:0;overflow:hidden;transition:flex .3s ease}
+  .elastic-opts.open{flex:1}
+  .elastic-opt{flex:1;padding:10px 4px;border:none;border-left:1px solid rgba(74,144,217,.15);background:none;color:var(--text);cursor:pointer;font-size:.78rem;font-family:inherit;font-weight:500;transition:all .15s;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .elastic-opt:hover{background:var(--primary);color:var(--primary-text)}
+
+  .flash{animation:flash .3s}
+  @keyframes flash{0%{opacity:1}50%{opacity:.4}100%{opacity:1}}
+</style>
+</head>
+<body>
+
+<h1>Start Timer &mdash; Button Transform Patterns</h1>
+<p class="subtitle">The button itself transforms. Click to interact. All options stay inside the button container.</p>
+
+<div class="grid">
+
+  <!-- ===== 1. ACCORDION REVEAL ===== -->
+  <div class="demo" id="d1">
+    <div class="demo-title">1. Accordion Reveal</div>
+    <div class="demo-desc">Button stays at top, action rows unfold below it inside the same container.</div>
+    <div class="demo-body">
+      <div class="mock-timer"><svg class="icon" viewBox="0 0 24 24"><path d="M15 1H9v2h6V1zm-4 13h2V8h-2v6zm8.03-6.61l1.42-1.42c-.43-.51-.9-.99-1.41-1.41l-1.42 1.42A8.962 8.962 0 0012 4c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-2.12-.74-4.07-1.97-5.61zM12 20c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg><span>Feeding</span><span class="ti">0:12:34</span></div>
+      <div class="accordion-shell" id="d1-shell">
+        <button class="accordion-trigger" id="d1-trigger" onclick="toggle('d1')">
+          <svg viewBox="0 0 24 24"><path d="M13 7h-2v4H7v2h4v4h2v-4h4v-2h-4V7zm-1-5C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>
+          <span>Start Timer</span>
+        </button>
+        <div class="accordion-items" id="d1-items"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 2. SLIDE CAROUSEL ===== -->
+  <div class="demo" id="d2">
+    <div class="demo-title">2. Slide Carousel</div>
+    <div class="demo-desc">Button text slides left, replaced by a scrollable pill strip within the same shape.</div>
+    <div class="demo-body">
+      <div class="mock-timer"><svg class="icon" viewBox="0 0 24 24"><path d="M15 1H9v2h6V1zm-4 13h2V8h-2v6zm8.03-6.61l1.42-1.42c-.43-.51-.9-.99-1.41-1.41l-1.42 1.42A8.962 8.962 0 0012 4c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-2.12-.74-4.07-1.97-5.61zM12 20c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg><span>Sleep</span><span class="ti">1:03:21</span></div>
+      <div class="carousel-shell" id="d2-shell">
+        <div class="carousel-inner" id="d2-inner">
+          <div class="carousel-face" onclick="toggle('d2')">
+            <svg viewBox="0 0 24 24"><path d="M13 7h-2v4H7v2h4v4h2v-4h4v-2h-4V7zm-1-5C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>
+            Start Timer
+          </div>
+          <div class="carousel-options" id="d2-opts"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 3. STRETCH GRID ===== -->
+  <div class="demo" id="d3">
+    <div class="demo-title">3. Stretch Grid</div>
+    <div class="demo-desc">Button stretches open to reveal a 2-column grid of actions inside itself.</div>
+    <div class="demo-body">
+      <div class="mock-timer"><svg class="icon" viewBox="0 0 24 24"><path d="M15 1H9v2h6V1zm-4 13h2V8h-2v6zm8.03-6.61l1.42-1.42c-.43-.51-.9-.99-1.41-1.41l-1.42 1.42A8.962 8.962 0 0012 4c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-2.12-.74-4.07-1.97-5.61zM12 20c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg><span>Diaper</span><span class="ti">0:02:10</span></div>
+      <div class="stretch-shell" id="d3-shell">
+        <button class="stretch-trigger" id="d3-trigger" onclick="toggle('d3')">
+          <svg viewBox="0 0 24 24"><path d="M13 7h-2v4H7v2h4v4h2v-4h4v-2h-4V7zm-1-5C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>
+          <span>Start Timer</span>
+        </button>
+        <div class="stretch-grid" id="d3-grid"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 4. TAB MORPH ===== -->
+  <div class="demo" id="d4">
+    <div class="demo-title">4. Tab Morph</div>
+    <div class="demo-desc">The single button morphs into a segmented tab bar with a close button at the end.</div>
+    <div class="demo-body">
+      <div class="mock-timer"><svg class="icon" viewBox="0 0 24 24"><path d="M15 1H9v2h6V1zm-4 13h2V8h-2v6zm8.03-6.61l1.42-1.42c-.43-.51-.9-.99-1.41-1.41l-1.42 1.42A8.962 8.962 0 0012 4c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-2.12-.74-4.07-1.97-5.61zM12 20c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg><span>Tummy Time</span><span class="ti">0:08:45</span></div>
+      <div class="tab-shell" id="d4-shell">
+        <div class="tab-bar">
+          <button class="tab-trigger" id="d4-trigger" onclick="toggle('d4')">
+            <svg viewBox="0 0 24 24"><path d="M13 7h-2v4H7v2h4v4h2v-4h4v-2h-4V7zm-1-5C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>
+            <span>Start Timer</span>
+          </button>
+          <div id="d4-segs" class="tab-bar" style="display:none"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 5. NUMBERED DRAWER ===== -->
+  <div class="demo" id="d5">
+    <div class="demo-title">5. Numbered Drawer</div>
+    <div class="demo-desc">Chevron header opens a numbered list inside the button. Clean and scannable.</div>
+    <div class="demo-body">
+      <div class="mock-timer"><svg class="icon" viewBox="0 0 24 24"><path d="M15 1H9v2h6V1zm-4 13h2V8h-2v6zm8.03-6.61l1.42-1.42c-.43-.51-.9-.99-1.41-1.41l-1.42 1.42A8.962 8.962 0 0012 4c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-2.12-.74-4.07-1.97-5.61zM12 20c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg><span>Feeding</span><span class="ti">0:22:18</span></div>
+      <div class="drawer-shell" id="d5-shell">
+        <button class="drawer-header" id="d5-header" onclick="toggle('d5')">
+          <svg viewBox="0 0 24 24"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
+          <span>Start Timer</span>
+        </button>
+        <div class="drawer-body" id="d5-body"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 6. ELASTIC SQUISH ===== -->
+  <div class="demo" id="d6">
+    <div class="demo-title">6. Elastic Squish</div>
+    <div class="demo-desc">Button label squishes into a small icon, making room for action segments to fill the space.</div>
+    <div class="demo-body">
+      <div class="mock-timer"><svg class="icon" viewBox="0 0 24 24"><path d="M15 1H9v2h6V1zm-4 13h2V8h-2v6zm8.03-6.61l1.42-1.42c-.43-.51-.9-.99-1.41-1.41l-1.42 1.42A8.962 8.962 0 0012 4c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-2.12-.74-4.07-1.97-5.61zM12 20c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg><span>Sleep</span><span class="ti">2:15:07</span></div>
+      <div class="elastic-shell" id="d6-shell">
+        <button class="elastic-trigger" id="d6-trigger" onclick="toggle('d6')">
+          <svg viewBox="0 0 24 24"><path d="M13 7h-2v4H7v2h4v4h2v-4h4v-2h-4V7zm-1-5C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>
+          <span>Start Timer</span>
+        </button>
+        <div class="elastic-opts" id="d6-opts"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const ACTIONS = ['Feeding','Sleep','Diaper','Pumping','Tummy Time'];
+const state = {};
+
+function flash(el){el.classList.remove('flash');void el.offsetWidth;el.classList.add('flash');setTimeout(()=>el.classList.remove('flash'),300)}
+
+function pick(el,id){flash(el);setTimeout(()=>toggle(id),250)}
+
+function toggle(id){
+  const open = state[id] = !state[id];
+
+  // 1. Accordion
+  if(id==='d1'){
+    const shell=document.getElementById('d1-shell');
+    const trigger=document.getElementById('d1-trigger');
+    const items=document.getElementById('d1-items');
+    shell.classList.toggle('open',open);
+    trigger.classList.toggle('open',open);
+    if(open){
+      items.innerHTML=ACTIONS.map(a=>`<div class="accordion-item" onclick="pick(this,'d1')"><span class="dot"></span>${a}</div>`).join('');
+    }
+    items.classList.toggle('open',open);
+    if(!open) setTimeout(()=>{items.innerHTML=''},300);
+  }
+
+  // 2. Carousel
+  if(id==='d2'){
+    const shell=document.getElementById('d2-shell');
+    const inner=document.getElementById('d2-inner');
+    const opts=document.getElementById('d2-opts');
+    shell.classList.toggle('open',open);
+    if(open){
+      opts.innerHTML=ACTIONS.map(a=>`<button class="carousel-opt" onclick="pick(this,'d2')">${a}</button>`).join('')+
+        `<button class="carousel-close" onclick="toggle('d2')">&times;</button>`;
+      inner.style.transform='translateX(-100%)';
+    } else {
+      inner.style.transform='translateX(0)';
+      setTimeout(()=>{opts.innerHTML=''},300);
+    }
+  }
+
+  // 3. Stretch Grid
+  if(id==='d3'){
+    const shell=document.getElementById('d3-shell');
+    const trigger=document.getElementById('d3-trigger');
+    const grid=document.getElementById('d3-grid');
+    shell.classList.toggle('open',open);
+    trigger.classList.toggle('open',open);
+    if(open){
+      grid.innerHTML=ACTIONS.map(a=>`<div class="stretch-cell" onclick="pick(this,'d3')">${a}</div>`).join('')+
+        `<div class="stretch-cell" style="color:var(--text-dim)" onclick="pick(this,'d3')">Unnamed</div>`;
+    }
+    grid.classList.toggle('open',open);
+    if(!open) setTimeout(()=>{grid.innerHTML=''},300);
+  }
+
+  // 4. Tab Morph
+  if(id==='d4'){
+    const shell=document.getElementById('d4-shell');
+    const trigger=document.getElementById('d4-trigger');
+    const segs=document.getElementById('d4-segs');
+    shell.classList.toggle('open',open);
+    if(open){
+      trigger.style.display='none';
+      if(!segs.hasChildNodes()){
+        ACTIONS.forEach(a=>{
+          const b=document.createElement('button');
+          b.className='tab-segment';b.textContent=a;
+          b.onclick=function(){pick(this,'d4')};
+          segs.appendChild(b);
+        });
+        const x=document.createElement('button');
+        x.className='tab-x';x.innerHTML='&times;';
+        x.onclick=function(e){e.stopPropagation();toggle('d4')};
+        segs.appendChild(x);
+      }
+      segs.style.display='flex';
+    } else {
+      segs.style.display='none';
+      trigger.style.display='flex';
+    }
+  }
+
+  // 5. Numbered Drawer
+  if(id==='d5'){
+    const shell=document.getElementById('d5-shell');
+    const header=document.getElementById('d5-header');
+    const body=document.getElementById('d5-body');
+    shell.classList.toggle('open',open);
+    header.classList.toggle('open',open);
+    if(open){
+      body.innerHTML=ACTIONS.map((a,i)=>`<div class="drawer-row" onclick="pick(this,'d5')"><span class="num">${i+1}</span>${a}</div>`).join('');
+    }
+    body.classList.toggle('open',open);
+    if(!open) setTimeout(()=>{body.innerHTML=''},300);
+  }
+
+  // 6. Elastic Squish
+  if(id==='d6'){
+    const shell=document.getElementById('d6-shell');
+    const trigger=document.getElementById('d6-trigger');
+    const opts=document.getElementById('d6-opts');
+    shell.classList.toggle('open',open);
+    trigger.classList.toggle('shrunk',open);
+    if(open){
+      opts.innerHTML=ACTIONS.map(a=>`<button class="elastic-opt" onclick="pick(this,'d6')">${a}</button>`).join('');
+    }
+    opts.classList.toggle('open',open);
+    if(!open) setTimeout(()=>{opts.innerHTML=''},300);
+  }
+}
+
+document.addEventListener('click',e=>{
+  setTimeout(()=>{
+    for(const key of Object.keys(state)){
+      if(state[key]){
+        const demo=document.getElementById(key);
+        if(demo && !demo.contains(e.target)) toggle(key);
+      }
+    }
+  },0);
+});
+</script>
+
+</body>
+</html>

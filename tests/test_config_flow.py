@@ -2,7 +2,7 @@
 
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntryState
-from homeassistant.const import CONF_API_KEY, CONF_HOST
+from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -41,7 +41,7 @@ async def test_successful_config_flow(hass: HomeAssistant):
     assert result["result"].state is ConfigEntryState.LOADED
     assert (
         result["result"].unique_id
-        == f"{MOCK_CONFIG[CONF_HOST]}-{MOCK_CONFIG[CONF_API_KEY]}"
+        == f"{MOCK_CONFIG[CONF_HOST]}:{MOCK_CONFIG[CONF_PORT]}"
     )
     assert result["title"] == f"{DEFAULT_NAME} ({MOCK_CONFIG[CONF_HOST]})"
     assert result["type"] == FlowResultType.CREATE_ENTRY

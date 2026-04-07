@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from asyncio import TimeoutError as AsyncIOTimeoutError
 from datetime import datetime, time
 from http import HTTPStatus
@@ -10,9 +11,7 @@ from typing import Any
 
 from aiohttp.client import ClientSession
 from aiohttp.client_exceptions import ClientError, ClientResponseError
-
-from homeassistant.const import ATTR_DATE, ATTR_TIME
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, LOGGER
@@ -28,11 +27,8 @@ class BabyBuddyClient:
         """Initialize the client."""
         LOGGER.debug("Initializing BabyBuddyClient")
         self.headers = {"Authorization": f"Token {api_key}"}
-        if len(api_key) > 8:
-            obfuscated = f"{api_key[:4]}{'.' * (len(api_key) - 8)}{api_key[-4:]}"
-        else:
-            obfuscated = "****"
-        LOGGER.debug("Client API Token, obfuscated: %s", obfuscated)
+        fingerprint = hashlib.sha256(api_key.encode()).hexdigest()[:8]
+        LOGGER.debug("Client API token fingerprint: %s", fingerprint)
         self.url = f"{host}:{port}{path or ''}"
         LOGGER.debug("Client URL: %s", self.url)
         self.session = session
@@ -48,7 +44,7 @@ class BabyBuddyClient:
             if entry:
                 url = f"{url}{entry}"
         async with asyncio.timeout(10):
-            LOGGER.debug(f"GET URL: {url}")
+            LOGGER.debug("GET URL: %s", url)
             resp = await self.session.get(
                 url=url,
                 headers=self.headers,
@@ -61,7 +57,7 @@ class BabyBuddyClient:
         self, endpoint: str, data: dict[str, Any], call_time: datetime | None = None
     ) -> None:
         """POST request to babybuddy API."""
-        LOGGER.debug("POST to %s", endpoint)
+        LOGGER.debug("POST to %s: %s", endpoint, data)
         try:
             async with asyncio.timeout(10):
                 resp = await self.session.post(
@@ -73,9 +69,11 @@ class BabyBuddyClient:
             if resp.status != HTTPStatus.CREATED:
                 error = await resp.json()
                 LOGGER.error("Could not create %s: %s", endpoint, error)
+                raise HomeAssistantError(f"Baby Buddy rejected the request: {error}")
 
         except (AsyncIOTimeoutError, ClientError) as error:
-            LOGGER.error(error)
+            LOGGER.error("POST to %s failed: %s", endpoint, error)
+            raise HomeAssistantError(f"Failed to reach Baby Buddy: {error}") from error
 
     async def async_patch(
         self, endpoint: str, entry: str, data: dict[str, str]
@@ -92,9 +90,15 @@ class BabyBuddyClient:
             if resp.status != HTTPStatus.OK:
                 error = await resp.json()
                 LOGGER.error("Could not update %s/%s: %s", endpoint, entry, error)
+                raise HomeAssistantError(
+                    f"Baby Buddy rejected the request: {error}"
+                )
 
         except (AsyncIOTimeoutError, ClientError) as error:
-            LOGGER.error(error)
+            LOGGER.error("PATCH to %s/%s failed: %s", endpoint, entry, error)
+            raise HomeAssistantError(
+                f"Failed to reach Baby Buddy: {error}"
+            ) from error
 
     async def async_delete(self, endpoint: str, entry: str) -> None:
         """DELETE request to babybuddy API."""
@@ -107,10 +111,16 @@ class BabyBuddyClient:
 
             if resp.status != 204:
                 error = await resp.json()
-                LOGGER.error(f"Could not delete {endpoint}/{entry}. error: {error}")
+                LOGGER.error("Could not delete %s/%s: %s", endpoint, entry, error)
+                raise HomeAssistantError(
+                    f"Baby Buddy rejected the request: {error}"
+                )
 
         except (AsyncIOTimeoutError, ClientError) as error:
-            LOGGER.error(error)
+            LOGGER.error("DELETE %s/%s failed: %s", endpoint, entry, error)
+            raise HomeAssistantError(
+                f"Failed to reach Baby Buddy: {error}"
+            ) from error
 
     async def async_get_discovery(self) -> dict[str, Any]:
         """GET the HA discovery metadata from Baby Buddy."""
@@ -124,9 +134,7 @@ class BabyBuddyClient:
             )
         return await resp.json()
 
-    async def async_patch_ha_settings(
-        self, data: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def async_patch_ha_settings(self, data: dict[str, Any]) -> dict[str, Any]:
         """PATCH Baby Buddy's HA-related settings."""
         url = f"{self.url}/api/ha/settings"
         async with asyncio.timeout(10):
@@ -175,7 +183,7 @@ class BabyBuddyClient:
         """Check connection to babybuddy API."""
         try:
             self.endpoints = await self.async_get()
-            LOGGER.debug(f"Endpoints: {self.endpoints}")
+            LOGGER.debug("Endpoints: %s", self.endpoints)
         except ClientResponseError as error:
             raise AuthorizationError from error
         except (TimeoutError, ClientError) as error:

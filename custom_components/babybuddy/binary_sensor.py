@@ -8,13 +8,14 @@ from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
 )
-from homeassistant.const import ATTR_ID, CONF_API_KEY
+from homeassistant.const import ATTR_ID
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import BabyBuddyConfigEntry, BabyBuddyCoordinator
+from .entity import build_device_info
 
 _BINARY_DEVICE_CLASS_MAP: dict[str, BinarySensorDeviceClass] = {
     "problem": BinarySensorDeviceClass.PROBLEM,
@@ -52,7 +53,7 @@ def update_items(
     if not coordinator.data:
         return
 
-    for child in coordinator.data[0]:
+    for child in coordinator.data.children:
         for bs_meta in coordinator.metadata.get("binary_sensors", []):
             key = f"{child[ATTR_ID]}_{bs_meta['key']}"
             if key not in tracked:
@@ -82,13 +83,10 @@ class BabyBuddyDynamicBinarySensor(CoordinatorEntity, BinarySensorEntity):
         self.child = child
         self._meta = meta
         self._attr_unique_id = (
-            f"{coordinator.config_entry.data[CONF_API_KEY]}"
+            f"{coordinator.config_entry.entry_id}"
             f"-{child[ATTR_ID]}-{meta['key']}"
         )
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, child[ATTR_ID])},
-            "name": f"{child['first_name']} {child['last_name']}",
-        }
+        self._attr_device_info = build_device_info(coordinator, child)
 
         dc = meta.get("device_class")
         if dc and dc in _BINARY_DEVICE_CLASS_MAP:
@@ -109,7 +107,7 @@ class BabyBuddyDynamicBinarySensor(CoordinatorEntity, BinarySensorEntity):
         """Return the stats dict for this child, or empty dict."""
         if not self.coordinator.data:
             return {}
-        child_data = self.coordinator.data[1].get(self.child[ATTR_ID], {})
+        child_data = self.coordinator.data.child_data.get(self.child[ATTR_ID], {})
         return child_data.get("stats", {})
 
     @property
@@ -129,12 +127,20 @@ class BabyBuddyDynamicBinarySensor(CoordinatorEntity, BinarySensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return entity specific state attributes from metadata mapping."""
+        attrs: dict[str, Any] = {}
+        group = self._meta.get("group", "")
+        if group:
+            attrs["bb_group"] = group
+        color = self._meta.get("color", "")
+        if color:
+            attrs["bb_color"] = color
+
         stats = self._stats
-        if not stats:
-            return {}
-        attr_map = self._meta.get("attributes", {})
-        return {
-            attr_name: stats.get(stats_field)
-            for attr_name, stats_field in attr_map.items()
-            if stats.get(stats_field) is not None
-        }
+        if stats:
+            attr_map = self._meta.get("attributes", {})
+            for attr_name, stats_field in attr_map.items():
+                val = stats.get(stats_field)
+                if val is not None:
+                    attrs[attr_name] = val
+
+        return attrs

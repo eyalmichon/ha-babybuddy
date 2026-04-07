@@ -9,10 +9,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
 from http import HTTPStatus
-from typing import Any
+from typing import Any, NamedTuple
 
+import homeassistant.helpers.device_registry as dr
 from aiohttp.client_exceptions import ClientError, ClientResponseError
-
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_ID,
@@ -24,13 +24,24 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
-import homeassistant.helpers.device_registry as dr
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+
+try:
+    from homeassistant.components.mqtt import (
+        async_publish as mqtt_async_publish,
+        async_subscribe as mqtt_async_subscribe,
+        async_wait_for_mqtt_client,
+    )
+except ImportError:
+    mqtt_async_publish = None  # type: ignore[assignment]
+    mqtt_async_subscribe = None  # type: ignore[assignment,misc]
+    async_wait_for_mqtt_client = None  # type: ignore[assignment]
 
 from .client import BabyBuddyClient
 from .const import (
+    ACTIVE_TIMERS_KEY,
     CONF_MQTT_TOPIC_PREFIX,
     DEFAULT_MQTT_TOPIC_PREFIX,
     DEFAULT_SCAN_INTERVAL,
@@ -43,12 +54,20 @@ from .errors import AuthorizationError, ConnectError
 type BabyBuddyConfigEntry = ConfigEntry[BabyBuddyData]
 
 
+class CoordinatorData(NamedTuple):
+    """Typed container for coordinator poll results."""
+
+    children: list[dict[str, Any]]
+    child_data: dict[int, dict[str, dict[str, str]]]
+
+
 @dataclass
 class BabyBuddyData:
     """Data retrieved from babybuddy."""
 
     coordinator: BabyBuddyCoordinator
     entities: dict[str, str]
+    service_keys: list[str] | None = None
 
 
 class BabyBuddyCoordinator(DataUpdateCoordinator):
@@ -129,9 +148,9 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
     @property
     def _slug_to_child_id(self) -> dict[str, int]:
         """Build a slug -> child_id mapping from current data."""
-        if not self.data or not self.data[0]:
+        if not self.data or not self.data.children:
             return {}
-        return {child["slug"]: child[ATTR_ID] for child in self.data[0]}
+        return {child["slug"]: child[ATTR_ID] for child in self.data.children}
 
     async def _setup_mqtt_subscriptions(self) -> None:
         """Subscribe to Baby Buddy MQTT state topics."""
@@ -143,16 +162,14 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
             )
             return
 
-        from homeassistant.components.mqtt import (
-            async_subscribe,
-            async_wait_for_mqtt_client,
-        )
-
-        # Wait for MQTT client to be ready (per HA docs)
-        if not await async_wait_for_mqtt_client(self.hass):
+        if async_wait_for_mqtt_client is None:
             LOGGER.warning(
-                "MQTT client not available, falling back to REST polling."
+                "MQTT component not available, falling back to REST polling."
             )
+            return
+
+        if not await async_wait_for_mqtt_client(self.hass):
+            LOGGER.warning("MQTT client not available, falling back to REST polling.")
             return
 
         prefix = self.config_entry.options.get(
@@ -161,13 +178,13 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
 
         # Subscribe after first REST poll so child slugs are available
         mqtt_topics = self.metadata.get("mqtt", {}).get("topics", {})
-        for child in self.data[0]:
+        for child in self.data.children:
             child_slug = child["slug"]
 
             # Subscribe to each data type topic
             for topic_key in mqtt_topics:
                 topic = f"{prefix}/{child_slug}/{topic_key}/state"
-                unsub = await async_subscribe(
+                unsub = await mqtt_async_subscribe(
                     self.hass,
                     topic,
                     self._handle_mqtt_message,
@@ -175,19 +192,7 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
                 )
                 self._mqtt_unsubscribes.append(unsub)
 
-            # Subscribe to stats topic
-            stats_topic = f"{prefix}/{child_slug}/stats/state"
-            unsub = await async_subscribe(
-                self.hass,
-                stats_topic,
-                self._handle_stats_message,
-                qos=1,
-            )
-            self._mqtt_unsubscribes.append(unsub)
-
-        LOGGER.info(
-            "Subscribed to Baby Buddy MQTT topics under prefix '%s'", prefix
-        )
+        LOGGER.info("Subscribed to Baby Buddy MQTT topics under prefix '%s'", prefix)
 
     @property
     def mqtt_discovery_enabled_in_bb(self) -> bool | None:
@@ -221,7 +226,8 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
         if not self.hass.config_entries.async_loaded_entries("mqtt"):
             return
 
-        from homeassistant.components.mqtt import async_wait_for_mqtt_client
+        if async_wait_for_mqtt_client is None:
+            return
 
         if not await async_wait_for_mqtt_client(self.hass):
             return
@@ -275,8 +281,6 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
 
     async def _detect_bb_discovery_topics(self) -> list[str]:
         """Subscribe briefly to detect retained BB discovery topics."""
-        from homeassistant.components.mqtt import async_subscribe
-
         found: list[str] = []
 
         def _on_msg(msg) -> None:
@@ -289,7 +293,7 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
         unsubs: list[Callable] = []
         for component in ("sensor", "binary_sensor"):
             unsubs.append(
-                await async_subscribe(
+                await mqtt_async_subscribe(
                     self.hass,
                     f"homeassistant/{component}/+/+/config",
                     _on_msg,
@@ -306,8 +310,6 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
 
     async def _legacy_cleanup_discovery_topics(self) -> list[str]:
         """Best-effort cleanup for old BB without the settings API."""
-        from homeassistant.components.mqtt import async_publish, async_subscribe
-
         cleaned: list[str] = []
         discovery_prefix = "homeassistant"
 
@@ -324,7 +326,7 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
         unsubs: list[Callable] = []
         for component in ("sensor", "binary_sensor"):
             unsubs.append(
-                await async_subscribe(
+                await mqtt_async_subscribe(
                     self.hass,
                     f"{discovery_prefix}/{component}/+/+/config",
                     _on_discovery,
@@ -338,7 +340,7 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
             unsub()
 
         for topic in extra:
-            await async_publish(self.hass, topic, "", retain=True)
+            await mqtt_async_publish(self.hass, topic, "", retain=True)
             cleaned.append(topic)
 
         return cleaned
@@ -374,44 +376,14 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
 
         child_id = self._slug_to_child_id.get(child_slug)
         if child_id is None:
-            LOGGER.debug(
-                "MQTT message for unknown child slug: %s", child_slug
+            LOGGER.debug("MQTT message for unknown child slug: %s", child_slug)
+            return
+
+        if child_id in self.data.child_data:
+            self.data.child_data[child_id][coordinator_key] = payload
+            self.async_set_updated_data(
+                CoordinatorData(self.data.children, self.data.child_data)
             )
-            return
-
-        children_list, child_data = self.data
-        if child_id in child_data:
-            child_data[child_id][coordinator_key] = payload
-            self.async_set_updated_data((children_list, child_data))
-
-    async def _handle_stats_message(self, msg) -> None:
-        """Handle incoming MQTT stats message."""
-        if not self.data:
-            return
-
-        parts = msg.topic.split("/")
-        if len(parts) < 4:
-            return
-
-        child_slug = parts[1]
-
-        try:
-            payload = json.loads(msg.payload)
-        except (json.JSONDecodeError, TypeError):
-            LOGGER.warning("Invalid MQTT stats payload on topic %s", msg.topic)
-            return
-
-        if not isinstance(payload, dict):
-            return
-
-        child_id = self._slug_to_child_id.get(child_slug)
-        if child_id is None:
-            return
-
-        children_list, child_data = self.data
-        if child_id in child_data:
-            child_data[child_id]["stats"] = payload
-            self.async_set_updated_data((children_list, child_data))
 
     async def _async_remove_deleted_children(self) -> None:
         """Remove child device if child is removed from babybuddy."""
@@ -421,9 +393,7 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
             if next(iter(device.identifiers))[1] not in self.child_ids:
                 self.device_registry.async_remove_device(device.id)
 
-    async def _async_update_data(
-        self,
-    ) -> tuple[list[dict[str, str]], dict[int, dict[str, dict[str, str]]]]:
+    async def _async_update_data(self) -> CoordinatorData:
         """Fetch data from API endpoint."""
         children_list: dict[str, Any] = {}
         child_data: dict[int, dict[str, dict[str, str]]] = {}
@@ -436,6 +406,7 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
         except ClientResponseError as error:
             if error.status == HTTPStatus.FORBIDDEN:
                 raise ConfigEntryAuthFailed from error
+            raise UpdateFailed(error) from error
         except (AsyncIOTimeoutError, ClientError) as error:
             raise UpdateFailed(error) from error
 
@@ -457,11 +428,30 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
             if last_activities_ep:
                 await self._fetch_bulk(child, child_data, last_activities_ep)
             else:
-                await self._fetch_individual(
-                    child, child_data, results_field
-                )
+                await self._fetch_individual(child, child_data, results_field)
 
-        return (children_list[results_field], child_data)
+            await self._fetch_timers(child, child_data)
+
+        return CoordinatorData(children_list[results_field], child_data)
+
+    async def _fetch_timers(
+        self,
+        child: dict[str, Any],
+        child_data: dict[int, dict],
+    ) -> None:
+        """Fetch all active timers for a child as a list."""
+        child_filter = self.metadata.get("api", {}).get("child_filter_param", "child")
+        results_field = self.metadata["api"]["list_response_format"]["results_field"]
+        endpoint = self.metadata.get("timer", {}).get("endpoint", "timers")
+        try:
+            resp = await self.client.async_get(
+                endpoint, f"?{child_filter}={child[ATTR_ID]}"
+            )
+            timers: list[dict] = resp.get(results_field, [])
+        except (ClientResponseError, AsyncIOTimeoutError, ClientError) as error:
+            LOGGER.warning("Timer fetch error for child %s: %s", child[ATTR_ID], error)
+            timers = []
+        child_data[child[ATTR_ID]][ACTIVE_TIMERS_KEY] = timers
 
     async def _fetch_bulk(
         self,
@@ -523,9 +513,7 @@ class BabyBuddyCoordinator(DataUpdateCoordinator):
             child_data[child[ATTR_ID]][endpoint_key] = data[0] if data else {}
 
         try:
-            stats = await self.client.async_get_stats(
-                child["slug"], stats_endpoint
-            )
+            stats = await self.client.async_get_stats(child["slug"], stats_endpoint)
             child_data[child[ATTR_ID]]["stats"] = stats
         except (ClientResponseError, AsyncIOTimeoutError, ClientError) as error:
             LOGGER.debug("Stats fetch error for %s: %s", child["slug"], error)

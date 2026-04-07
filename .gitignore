@@ -144,3 +144,6 @@ cython_debug/
 .dev/
 .plans/
 .storage/
+
+# Frontend build
+frontend_src/node_modules/

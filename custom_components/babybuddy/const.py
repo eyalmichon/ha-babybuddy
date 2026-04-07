@@ -31,7 +31,7 @@ DEFAULT_SCAN_INTERVAL: Final[int] = 60
 DEFAULT_MQTT_TOPIC_PREFIX: Final[str] = "babybuddy"
 
 CONFIG_FLOW_VERSION: Final[int] = 2
-CONFIG_FLOW_MINOR_VERSION: Final[int] = 1
+CONFIG_FLOW_MINOR_VERSION: Final[int] = 2
 
 
 @dataclass
@@ -39,6 +39,9 @@ class BabyBuddyEntityDescription(SensorEntityDescription):
     """Describe Baby Buddy sensor entity."""
 
     state_key: Callable[[dict], int] | str = ""
+    group: str = ""
+    color: str = ""
+    reverse_transform: str = ""
 
 
 @dataclass
@@ -46,4 +49,6 @@ class BabyBuddySelectDescription(SelectEntityDescription):
     """Describe Baby Buddy select entity."""
 
 
-PLATFORMS: Final = ["binary_sensor", "sensor", "select", "switch"]
+ACTIVE_TIMERS_KEY: Final[str] = "active_timers"
+
+PLATFORMS: Final = ["binary_sensor", "button", "sensor", "select"]

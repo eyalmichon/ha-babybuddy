@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+set -e
+
+cd "$(dirname "$0")/../frontend_src"
+
+echo "Installing dependencies..."
+npm install
+
+echo "Building Baby Buddy card..."
+npm run build
+
+echo "Build complete! Output: custom_components/babybuddy/frontend/babybuddy-card.js"

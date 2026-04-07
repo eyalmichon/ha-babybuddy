@@ -30,12 +30,12 @@ KNOWN_TRANSFORMS: dict[str, Any] = {
 # Device-class / state-class string → HA enum mappings
 # ---------------------------------------------------------------------------
 
-_DEVICE_CLASS_MAP: dict[str, SensorDeviceClass] = {
+DEVICE_CLASS_MAP: dict[str, SensorDeviceClass] = {
     "timestamp": SensorDeviceClass.TIMESTAMP,
     "temperature": SensorDeviceClass.TEMPERATURE,
 }
 
-_STATE_CLASS_MAP: dict[str, SensorStateClass] = {
+STATE_CLASS_MAP: dict[str, SensorStateClass] = {
     "measurement": SensorStateClass.MEASUREMENT,
     "total": SensorStateClass.TOTAL,
     "total_increasing": SensorStateClass.TOTAL_INCREASING,
@@ -57,15 +57,24 @@ def sensor_description_from_metadata(
     }
 
     dc = meta.get("device_class")
-    if dc and dc in _DEVICE_CLASS_MAP:
-        kwargs["device_class"] = _DEVICE_CLASS_MAP[dc]
+    if dc and dc in DEVICE_CLASS_MAP:
+        kwargs["device_class"] = DEVICE_CLASS_MAP[dc]
 
     sc = meta.get("state_class")
-    if sc and sc in _STATE_CLASS_MAP:
-        kwargs["state_class"] = _STATE_CLASS_MAP[sc]
+    if sc and sc in STATE_CLASS_MAP:
+        kwargs["state_class"] = STATE_CLASS_MAP[sc]
 
     if meta.get("unit_of_measurement"):
         kwargs["native_unit_of_measurement"] = meta["unit_of_measurement"]
+
+    if meta.get("group"):
+        kwargs["group"] = meta["group"]
+
+    if meta.get("color"):
+        kwargs["color"] = meta["color"]
+
+    if meta.get("reverse_transform"):
+        kwargs["reverse_transform"] = meta["reverse_transform"]
 
     transform_name = meta.get("transform")
     if transform_name and transform_name in KNOWN_TRANSFORMS:

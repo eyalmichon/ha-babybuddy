@@ -15,7 +15,8 @@ from homeassistant.util import dt as dt_util
 from homeassistant.util import slugify
 
 from .client import get_datetime_from_time
-from .const import DOMAIN, LOGGER
+from .const import ACTIVE_TIMERS_KEY, DOMAIN, LOGGER
+from .entity import child_device_name
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant, ServiceCall
@@ -23,7 +24,7 @@ if TYPE_CHECKING:
     from .coordinator import BabyBuddyCoordinator
 
 # ---------------------------------------------------------------------------
-# Helpers shared with the old code (kept with string literals)
+# Service call data helpers
 # ---------------------------------------------------------------------------
 
 
@@ -51,11 +52,11 @@ def _build_entity_id_to_child_map(
 ) -> dict[str, int]:
     """Build a mapping of known entity_id patterns to child IDs."""
     mapping: dict[str, int] = {}
-    for child in coordinator.data[0]:
+    for child in coordinator.data.children:
         child_id = child[ATTR_ID]
-        device_slug = slugify(f'{child["first_name"]} {child["last_name"]}')
+        device_slug = slugify(child_device_name(child, coordinator.metadata))
         mapping[f"sensor.{device_slug}"] = child_id
-        mapping[f"switch.{device_slug}_timer"] = child_id
+        mapping[f"button.{device_slug}_start_timer"] = child_id
     return mapping
 
 
@@ -68,7 +69,7 @@ async def _setup_service_data(
 
     # Resolve child from explicit "child" entity_id field
     if isinstance(data.get("child"), str) and data["child"].startswith(
-        ("sensor.", "switch.")
+        ("sensor.", "button.")
     ):
         resolved = entity_map.get(data["child"])
         if resolved is not None:
@@ -79,52 +80,64 @@ async def _setup_service_data(
         target_id = call.data[ATTR_ENTITY_ID]
         if isinstance(target_id, list):
             target_id = target_id[0]
-        # Match target entity to a child by checking if entity_id starts with device slug
-        for child in coordinator.data[0]:
-            device_slug = slugify(f'{child["first_name"]} {child["last_name"]}')
+        for child in coordinator.data.children:
+            device_slug = slugify(child_device_name(child, coordinator.metadata))
             entity_slug = target_id.split(".", 1)[1] if "." in target_id else target_id
             if entity_slug == device_slug or entity_slug.startswith(f"{device_slug}_"):
                 data["child"] = child[ATTR_ID]
                 break
 
-    # Resolve timer if requested
+    # Resolve timer: explicit int IDs are trusted (BB API validates);
+    # non-int truthy values (e.g. True) resolve to the first cached timer.
+    # Note: bool is a subclass of int in Python, so check bool first.
     if data.get("timer") and isinstance(data.get("child"), int):
         child_id = data["child"]
-        timer_data = coordinator.data[1].get(child_id, {}).get("timers", {})
-        if timer_data:
-            data["timer"] = [timer_data[ATTR_ID]]
+        timer_val = data["timer"]
+        if isinstance(timer_val, int) and not isinstance(timer_val, bool):
+            data["timer"] = timer_val
         else:
-            del data["timer"]
-
-    return data
-
-
-async def _set_common_fields(
-    call: ServiceCall, data: dict[str, Any], coordinator: BabyBuddyCoordinator
-) -> dict[str, Any]:
-    """Set data common fields."""
-
-    if data.get("timer"):
-        child_id = data["child"]
-        timer_data = coordinator.data[1].get(child_id, {}).get("timers", {})
-        if not timer_data:
-            raise ServiceValidationError(
-                translation_domain=DOMAIN,
-                translation_key="timer_not_found",
+            timers = coordinator.data.child_data.get(child_id, {}).get(
+                ACTIVE_TIMERS_KEY, []
             )
-        data["timer"] = timer_data[ATTR_ID]
-    else:
-        data["start"] = get_datetime_from_time(
-            call.data.get("start") or dt_util.now()
-        )
-        data["end"] = get_datetime_from_time(
-            call.data.get("end") or dt_util.now()
-        )
-
-    if call.data.get("tags"):
-        data["tags"] = call.data.get("tags")
+            if timers:
+                data["timer"] = timers[0][ATTR_ID]
+            else:
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN,
+                    translation_key="timer_not_found",
+                )
 
     return data
+
+
+def _apply_defaults(data: dict[str, Any], svc_def: dict) -> None:
+    """Apply metadata-driven defaults, respecting exclusion groups."""
+    fields = svc_def.get("fields", {})
+
+    exc_groups: dict[str, list[str]] = {}
+    for fname, fdef in fields.items():
+        group = fdef.get("exclusion_group")
+        if group:
+            exc_groups.setdefault(group, []).append(fname)
+
+    for fname, fdef in fields.items():
+        if fname in data and data[fname] is not None:
+            continue
+
+        default = fdef.get("default")
+        if not default:
+            continue
+
+        group = fdef.get("exclusion_group")
+        if group:
+            siblings = exc_groups.get(group, [])
+            if any(s != fname and data.get(s) is not None for s in siblings):
+                continue
+
+        if default == "now":
+            data[fname] = dt_util.now()
+        elif default == "today":
+            data[fname] = dt_util.now().strftime("%Y-%m-%d")
 
 
 # ---------------------------------------------------------------------------
@@ -140,16 +153,29 @@ _TYPE_TO_VALIDATOR: dict[str, Any] = {
     "datetime": vol.Any(cv.datetime, cv.time),
     "time": cv.time,
     "entity_id": cv.entity_id,
+    "child_entity": cv.entity_id,
+    "timer": vol.Any(cv.boolean, cv.positive_int),
     "string_list": vol.All(cv.ensure_list, [str]),
 }
 
 
-def _get_select_options(select_key: str, metadata: dict) -> list[str]:
-    """Look up select options by key from metadata."""
+def _get_select_options(select_key: str, metadata: dict) -> list:
+    """Look up select options by key from metadata.
+
+    Prefers ``options_detail`` (rich objects with value/label/color) when
+    available, falling back to the flat ``options`` list.
+    """
     for s in metadata.get("selects", []):
         if s["key"] == select_key:
+            if s.get("options_detail"):
+                return s["options_detail"]
             return s.get("options", [])
     return []
+
+
+def _extract_option_values(options: list) -> list[str]:
+    """Return plain string values from a mixed options list."""
+    return [o["value"] if isinstance(o, dict) else o for o in options]
 
 
 def _get_vol_validator(field_def: dict, metadata: dict) -> Any:  # noqa: ANN401
@@ -157,16 +183,24 @@ def _get_vol_validator(field_def: dict, metadata: dict) -> Any:  # noqa: ANN401
     ftype = field_def["type"]
     if ftype == "select":
         options = _get_select_options(field_def["select_key"], metadata)
-        return vol.In(options)
+        return vol.In(_extract_option_values(options))
     return _TYPE_TO_VALIDATOR.get(ftype, cv.string)
 
 
 _BASE_SELECTORS: dict[str, dict] = {
     "boolean": {"boolean": {}},
-    "date": {"text": {}},
+    "date": {"date": {}},
     "datetime": {"time": {}},
     "time": {"time": {}},
     "string_list": {"text": {"multiple": True}},
+    "child_entity": {
+        "entity": {
+            "integration": DOMAIN,
+            "domain": "sensor",
+            "device_class": "babybuddy_child",
+        }
+    },
+    "timer": {"number": {"mode": "box", "min": 1}},
 }
 
 
@@ -174,25 +208,33 @@ def _get_selector(field_def: dict, metadata: dict) -> dict:
     """Build an HA selector dict from a BB field definition."""
     ftype = field_def["type"]
 
-    # Simple static selectors
     if ftype in _BASE_SELECTORS:
         return _BASE_SELECTORS[ftype]
 
-    # String: check multiline hint
     if ftype == "string":
-        return {"text": {"multiline": True}} if field_def.get("multiline") else {"text": {}}
+        return (
+            {"text": {"multiline": True}}
+            if field_def.get("multiline")
+            else {"text": {}}
+        )
 
-    # Number types: merge BB selector_hints
     if ftype in ("float", "int"):
         return {"number": {"mode": "box", **field_def.get("selector_hints", {})}}
 
-    # Select: look up options from metadata
     if ftype == "select":
-        return {"select": {"options": _get_select_options(field_def["select_key"], metadata)}}
+        return {
+            "select": {
+                "options": _get_select_options(field_def["select_key"], metadata)
+            }
+        }
 
-    # Entity: use BB-provided domain
     if ftype == "entity_id":
-        return {"entity": {"integration": DOMAIN, "domain": field_def.get("entity_domain", "sensor")}}
+        return {
+            "entity": {
+                "integration": DOMAIN,
+                "domain": field_def.get("entity_domain", "sensor"),
+            }
+        }
 
     return {"text": {}}
 
@@ -201,34 +243,19 @@ def _build_schema(svc_def: dict, metadata: dict) -> vol.Schema:
     """Build a vol.Schema for validation from a service definition."""
     fields: dict = {}
 
-    if svc_def.get("common_fields"):
-        fields[vol.Optional("child")] = cv.entity_id
-        fields[vol.Optional("notes")] = cv.string
-        fields[vol.Optional("tags")] = vol.All(cv.ensure_list, [str])
-
-    if svc_def.get("uses_timer"):
-        fields[vol.Optional("child")] = cv.entity_id
-        fields[vol.Exclusive("timer", group_of_exclusion="timer_or_start")] = (
-            cv.boolean
-        )
-        fields[
-            vol.Exclusive("start", group_of_exclusion="timer_or_start")
-        ] = vol.Any(cv.datetime, cv.time)
-        fields[vol.Optional("end")] = vol.Any(cv.datetime, cv.time)
-        fields[vol.Optional("tags")] = vol.All(cv.ensure_list, [str])
-
     for fname, fdef in svc_def.get("fields", {}).items():
-        # Skip fields already added by common_fields / uses_timer
-        already = {k.schema if hasattr(k, "schema") else k for k in fields}
-        if fname in already:
-            continue
-
         validator = _get_vol_validator(fdef, metadata)
-        # entity_id fields can be resolved from HA target, so always optional
-        if fdef.get("required") and fdef["type"] != "entity_id":
-            fields[vol.Required(fname)] = validator
+        ftype = fdef["type"]
+
+        exc_group = fdef.get("exclusion_group")
+        if exc_group:
+            key = vol.Exclusive(fname, group_of_exclusion=exc_group)
+        elif fdef.get("required") and ftype not in ("entity_id", "child_entity"):
+            key = vol.Required(fname)
         else:
-            fields[vol.Optional(fname)] = validator
+            key = vol.Optional(fname)
+
+        fields[key] = validator
 
     # Accept entity_id from HA target resolution
     fields[vol.Optional(ATTR_ENTITY_ID)] = vol.Any(cv.entity_id, [cv.entity_id])
@@ -240,67 +267,33 @@ def _build_service_description(svc_def: dict, metadata: dict) -> dict:
     """Build a service description dict for async_set_service_schema."""
     fields: dict = {}
 
-    if svc_def.get("common_fields"):
-        fields["child"] = {
-            "name": "Child",
-            "required": True,
-            "selector": {
-                "entity": {
-                    "integration": DOMAIN,
-                    "domain": "sensor",
-                    "device_class": "babybuddy_child",
-                }
-            },
-        }
-        fields["notes"] = {
-            "name": "Notes",
-            "selector": {"text": {"multiline": True}},
-        }
-        fields["tags"] = {
-            "name": "Tags",
-            "selector": {"text": {"multiple": True}},
-        }
-
-    if svc_def.get("uses_timer"):
-        fields["child"] = {
-            "name": "Child",
-            "required": True,
-            "selector": {"entity": {"integration": DOMAIN, "domain": "switch"}},
-        }
-        fields["timer"] = {
-            "name": "Use timer",
-            "selector": {"boolean": {}},
-        }
-        fields["start"] = {
-            "name": "Start time",
-            "selector": {"time": {}},
-        }
-        fields["end"] = {
-            "name": "End time",
-            "selector": {"time": {}},
-        }
-        fields["tags"] = {
-            "name": "Tags",
-            "selector": {"text": {"multiple": True}},
-        }
-
     for fname, fdef in svc_def.get("fields", {}).items():
-        if fname in fields:
-            continue
         field_desc: dict[str, Any] = {
+            "_order": fdef.get("order", 50),
             "name": fdef["name"],
             "selector": _get_selector(fdef, metadata),
         }
+        if fdef.get("default"):
+            field_desc["default"] = fdef["default"]
         if fdef.get("description"):
             field_desc["description"] = fdef["description"]
         if fdef.get("required"):
             field_desc["required"] = True
+        if fdef.get("hidden_in_card"):
+            field_desc["hidden_in_card"] = True
+        if fdef.get("exclusion_group"):
+            field_desc["exclusion_group"] = fdef["exclusion_group"]
+        if fdef.get("hidden_when_group"):
+            field_desc["hidden_when_group"] = fdef["hidden_when_group"]
         fields[fname] = field_desc
 
+    sorted_fields = dict(
+        sorted(fields.items(), key=lambda item: item[1].pop("_order", 50))
+    )
     return {
         "name": svc_def["name"],
         "description": svc_def["description"],
-        "fields": fields,
+        "fields": sorted_fields,
     }
 
 
@@ -309,9 +302,7 @@ def _build_service_description(svc_def: dict, metadata: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _apply_transforms(
-    data: dict[str, Any], svc_def: dict, metadata: dict
-) -> None:
+def _apply_transforms(data: dict[str, Any], svc_def: dict, metadata: dict) -> None:
     """Apply transforms defined in the service definition to data in-place."""
     transforms_map = metadata.get("transforms", {})
 
@@ -363,13 +354,18 @@ async def _async_handle_service(
                 translation_domain=DOMAIN,
                 translation_key="entry_not_loaded",
             )
-        slug_parts = parts[1].split("_")
-        if len(slug_parts) < 4:
+        entity_slug = parts[1]
+        key = None
+        for desc in coordinator.sensor_descriptions:
+            suffix = f"_{desc.key.replace('-', '_')}"
+            if entity_slug.endswith(suffix):
+                key = desc.key
+                break
+        if key is None:
             raise ServiceValidationError(
                 translation_domain=DOMAIN,
                 translation_key="entry_not_loaded",
             )
-        key = slug_parts[3]
         entry_id = entity.attributes.get(ATTR_ID)
         if entry_id is None:
             raise ServiceValidationError(
@@ -382,9 +378,7 @@ async def _async_handle_service(
 
     data = await _setup_service_data(call, coordinator)
 
-    # Timer-based services need common fields
-    if svc_def.get("uses_timer"):
-        data = await _set_common_fields(call, data, coordinator)
+    _apply_defaults(data, svc_def)
 
     # Apply datetime conversions for datetime-type fields
     for fname, fdef in svc_def.get("fields", {}).items():
@@ -400,6 +394,9 @@ async def _async_handle_service(
         if source_field and source_field in data:
             data[target_field] = data.pop(source_field)
 
+    # Strip HA-internal fields before posting to BB
+    data.pop(ATTR_ENTITY_ID, None)
+
     # POST to the endpoint
     date_time_now = get_datetime_from_time(dt_util.now())
     await coordinator.client.async_post(svc_def["endpoint"], data, date_time_now)
@@ -413,13 +410,19 @@ async def _async_handle_service(
 
 async def async_setup_services(
     hass: HomeAssistant, coordinator: BabyBuddyCoordinator
-) -> None:
-    """Register all services dynamically from discovery metadata."""
+) -> list[str]:
+    """Register all services dynamically from discovery metadata.
+
+    Returns the list of service keys that were registered so the caller
+    can unregister them on entry unload.
+    """
     metadata = coordinator.metadata
+    registered: list[str] = []
 
     for svc in metadata.get("services", []):
         key = svc["key"]
         if hass.services.has_service(DOMAIN, key):
+            registered.append(key)
             continue
 
         # Build validation schema and register handler
@@ -431,8 +434,153 @@ async def async_setup_services(
             schema=schema,
         )
 
+        registered.append(key)
+
         # Build and set UI description programmatically
         description = _build_service_description(svc, metadata)
         async_set_service_schema(hass, DOMAIN, key, description)
 
-    LOGGER.info("Registered %d Baby Buddy services", len(metadata.get("services", [])))
+    # ---- Manual timer management services ----
+
+    if not hass.services.has_service(DOMAIN, "start_timer"):
+        start_timer_schema = vol.Schema(
+            {
+                vol.Required("child"): cv.entity_id,
+                vol.Optional("name"): cv.string,
+                vol.Optional(ATTR_ENTITY_ID): vol.Any(cv.entity_id, [cv.entity_id]),
+            }
+        )
+
+        async def _async_handle_start_timer(call: ServiceCall) -> None:
+            coord = await _async_extract_entry_coordinator(call)
+            data = await _setup_service_data(call, coord)
+            if not isinstance(data.get("child"), int):
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN,
+                    translation_key="entry_not_loaded",
+                )
+            post_data: dict[str, Any] = {
+                "child": data["child"],
+                "start": get_datetime_from_time(dt_util.now()),
+            }
+            if data.get("name"):
+                post_data["name"] = data["name"]
+            timer_meta = coord.metadata.get("timer", {})
+            endpoint = timer_meta.get("endpoint", "timers")
+            await coord.client.async_post(endpoint, post_data)
+            await coord.async_request_refresh()
+
+        hass.services.async_register(
+            DOMAIN, "start_timer", _async_handle_start_timer, start_timer_schema
+        )
+        async_set_service_schema(
+            hass,
+            DOMAIN,
+            "start_timer",
+            {
+                "name": "Start timer",
+                "description": "Start a new timer for a child.",
+                "fields": {
+                    "child": {
+                        "name": "Child",
+                        "required": True,
+                        "selector": {
+                            "entity": {
+                                "integration": DOMAIN,
+                                "domain": "sensor",
+                                "device_class": "babybuddy_child",
+                            }
+                        },
+                    },
+                    "name": {
+                        "name": "Timer name",
+                        "description": "Optional name for the timer.",
+                        "selector": {"text": {}},
+                    },
+                },
+            },
+        )
+
+    if not hass.services.has_service(DOMAIN, "stop_timer"):
+        stop_timer_schema = vol.Schema(
+            {
+                vol.Required("timer_id"): cv.positive_int,
+            }
+        )
+
+        async def _async_handle_stop_timer(call: ServiceCall) -> None:
+            coord = await _async_extract_entry_coordinator(call)
+            timer_id = call.data["timer_id"]
+            timer_meta = coord.metadata.get("timer", {})
+            endpoint = timer_meta.get("endpoint", "timers")
+            await coord.client.async_delete(endpoint, timer_id)
+            await coord.async_request_refresh()
+
+        hass.services.async_register(
+            DOMAIN, "stop_timer", _async_handle_stop_timer, stop_timer_schema
+        )
+        async_set_service_schema(
+            hass,
+            DOMAIN,
+            "stop_timer",
+            {
+                "name": "Stop timer",
+                "description": "Delete (cancel) an active timer by its ID.",
+                "fields": {
+                    "timer_id": {
+                        "name": "Timer ID",
+                        "required": True,
+                        "description": "The Baby Buddy timer ID to stop.",
+                        "selector": {"number": {"mode": "box", "min": 1}},
+                    },
+                },
+            },
+        )
+
+    if not hass.services.has_service(DOMAIN, "rename_timer"):
+        rename_timer_schema = vol.Schema(
+            {
+                vol.Required("timer_id"): cv.positive_int,
+                vol.Required("name"): cv.string,
+            }
+        )
+
+        async def _async_handle_rename_timer(call: ServiceCall) -> None:
+            coord = await _async_extract_entry_coordinator(call)
+            timer_id = call.data["timer_id"]
+            name = call.data["name"]
+            timer_meta = coord.metadata.get("timer", {})
+            endpoint = timer_meta.get("endpoint", "timers")
+            await coord.client.async_patch(endpoint, timer_id, {"name": name})
+            await coord.async_request_refresh()
+
+        hass.services.async_register(
+            DOMAIN, "rename_timer", _async_handle_rename_timer, rename_timer_schema
+        )
+        async_set_service_schema(
+            hass,
+            DOMAIN,
+            "rename_timer",
+            {
+                "name": "Rename timer",
+                "description": "Rename an active timer.",
+                "fields": {
+                    "timer_id": {
+                        "name": "Timer ID",
+                        "required": True,
+                        "description": "The Baby Buddy timer ID to rename.",
+                        "selector": {"number": {"mode": "box", "min": 1}},
+                    },
+                    "name": {
+                        "name": "Name",
+                        "required": True,
+                        "description": "New name for the timer.",
+                        "selector": {"text": {}},
+                    },
+                },
+            },
+        )
+
+    registered.extend(["start_timer", "stop_timer", "rename_timer"])
+    LOGGER.info("Registered %d Baby Buddy services", len(registered))
+    return registered
