@@ -46,14 +46,22 @@ async def _websocket_card_config(
     connection: websocket_api.ActiveConnection,
     msg: dict,
 ) -> None:
-    """Return card configuration: version + UI metadata from discovery."""
+    """Return card configuration: version + UI metadata from discovery.
+
+    The ``ready`` flag lets the frontend distinguish "integration not loaded
+    yet, please retry" from "no groups configured". Without it, an early
+    card render would get ``sensor_groups: []`` and wrongly place every
+    entity into the catch-all "Other" bucket forever.
+    """
     result: dict[str, Any] = {"version": _INTEGRATION_VERSION}
 
     entries = hass.config_entries.async_loaded_entries(DOMAIN)
     if entries:
         coordinator = entries[0].runtime_data.coordinator
+        result["ready"] = True
         result["sensor_groups"] = coordinator.metadata.get("sensor_groups", [])
     else:
+        result["ready"] = False
         result["sensor_groups"] = []
 
     connection.send_result(msg["id"], result)

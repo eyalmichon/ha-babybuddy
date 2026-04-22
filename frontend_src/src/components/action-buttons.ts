@@ -149,13 +149,17 @@ export class ActionButtons extends LitElement {
         --mdc-icon-size: 18px;
         outline: none;
       }
-      .action-btn:hover,
+      @media (hover: hover) {
+        .action-btn:hover {
+          background: var(--primary-color);
+          color: var(--text-primary-color);
+          border-color: var(--primary-color);
+        }
+      }
       .action-btn:focus-visible {
         background: var(--primary-color);
         color: var(--text-primary-color);
         border-color: var(--primary-color);
-      }
-      .action-btn:focus-visible {
         box-shadow: 0 0 0 2px var(--primary-color);
       }
       .action-btn:active {

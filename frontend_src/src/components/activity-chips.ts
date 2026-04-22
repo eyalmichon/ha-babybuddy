@@ -467,8 +467,10 @@ export class ActivityChips extends LitElement {
         outline: none;
         --mdc-icon-size: 16px;
       }
-      .group-header:hover {
-        background: rgba(var(--rgb-primary-color, 3, 169, 244), 0.08);
+      @media (hover: hover) {
+        .group-header:hover {
+          background: rgba(var(--rgb-primary-color, 3, 169, 244), 0.08);
+        }
       }
       .group-header:focus-visible {
         box-shadow: inset 0 0 0 2px var(--primary-color);
@@ -509,8 +511,10 @@ export class ActivityChips extends LitElement {
         transition: background 0.15s ease;
         --mdc-icon-size: 18px;
       }
-      .row:hover {
-        background: rgba(var(--rgb-primary-color, 3, 169, 244), 0.05);
+      @media (hover: hover) {
+        .row:hover {
+          background: rgba(var(--rgb-primary-color, 3, 169, 244), 0.05);
+        }
       }
       .row-icon {
         flex-shrink: 0;
@@ -587,8 +591,10 @@ export class ActivityChips extends LitElement {
         cursor: pointer;
         --mdc-icon-size: 14px;
       }
-      .delete-btn:hover {
-        background: rgba(var(--rgb-error-color, 219, 68, 55), 0.18);
+      @media (hover: hover) {
+        .delete-btn:hover {
+          background: rgba(var(--rgb-error-color, 219, 68, 55), 0.18);
+        }
       }
       .delete-btn:focus-visible {
         box-shadow: 0 0 0 2px var(--error-color, #db4437);
@@ -598,8 +604,10 @@ export class ActivityChips extends LitElement {
         background: rgba(var(--rgb-error-color, 219, 68, 55), 0.15);
         cursor: default;
       }
-      .delete-btn.confirming:hover {
-        background: rgba(var(--rgb-error-color, 219, 68, 55), 0.15);
+      @media (hover: hover) {
+        .delete-btn.confirming:hover {
+          background: rgba(var(--rgb-error-color, 219, 68, 55), 0.15);
+        }
       }
 
       .delete-default {
@@ -641,15 +649,19 @@ export class ActivityChips extends LitElement {
         background: var(--error-color, #db4437);
         color: #fff;
       }
-      .confirm-yes:hover {
-        opacity: 0.85;
+      @media (hover: hover) {
+        .confirm-yes:hover {
+          opacity: 0.85;
+        }
       }
       .confirm-cancel {
         background: var(--card-background-color, var(--ha-card-background));
         color: var(--primary-text-color);
       }
-      .confirm-cancel:hover {
-        opacity: 0.8;
+      @media (hover: hover) {
+        .confirm-cancel:hover {
+          opacity: 0.8;
+        }
       }
 
       .delete-error {

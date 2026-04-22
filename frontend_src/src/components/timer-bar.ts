@@ -260,6 +260,7 @@ export class TimerBar extends LitElement {
         <button
           class="elastic-trigger ${expanded ? "shrunk" : ""}"
           ?disabled=${this._busy}
+          title=${expanded ? "Cancel" : ""}
           @click=${(e: Event) => {
             e.stopPropagation();
             if (expanded) {
@@ -269,7 +270,9 @@ export class TimerBar extends LitElement {
             }
           }}
         >
-          <ha-icon icon="mdi:timer-plus"></ha-icon>
+          <ha-icon
+            icon=${expanded ? "mdi:close-thick" : "mdi:timer-plus"}
+          ></ha-icon>
           <span>${this._busy ? "Starting..." : "Start Timer"}</span>
         </button>
         <div class="elastic-opts ${expanded ? "open" : ""}">
@@ -360,9 +363,10 @@ export class TimerBar extends LitElement {
         <div class="timer-opts ${isExpanded ? "open" : ""}">
           <button
             class="elastic-opt discard"
+            title="Discard timer"
             @click=${() => this._discardTimer(entity)}
           >
-            <ha-icon icon="mdi:delete-outline"></ha-icon>
+            <ha-icon icon="mdi:close-thick"></ha-icon>
           </button>
           ${actions.map(
             (a) => html`
@@ -463,8 +467,10 @@ export class TimerBar extends LitElement {
         justify-content: center;
         --mdc-icon-size: 24px;
       }
-      .toggle:hover {
-        background: rgba(255, 255, 255, 0.2);
+      @media (hover: hover) {
+        .toggle:hover {
+          background: rgba(255, 255, 255, 0.2);
+        }
       }
       .timer-face {
         display: flex;
@@ -498,9 +504,11 @@ export class TimerBar extends LitElement {
         border-left-color: rgba(255, 255, 255, 0.15);
         color: inherit;
       }
-      .timer-opts .elastic-opt:hover {
-        background: rgba(255, 255, 255, 0.15);
-        color: inherit;
+      @media (hover: hover) {
+        .timer-opts .elastic-opt:hover {
+          background: rgba(255, 255, 255, 0.15);
+          color: inherit;
+        }
       }
       .elastic-opt.discard {
         flex: 0 0 42px;
@@ -510,11 +518,13 @@ export class TimerBar extends LitElement {
       }
       .timer-opts .elastic-opt.discard {
         color: var(--error-color, #db4437);
-        background: rgba(0, 0, 0, 0.15);
+        background: rgba(255, 255, 255, 0.15);
       }
-      .timer-opts .elastic-opt.discard:hover {
-        background: var(--error-color, #db4437);
-        color: var(--text-primary-color);
+      @media (hover: hover) {
+        .timer-opts .elastic-opt.discard:hover {
+          background: var(--error-color, #db4437);
+          color: var(--text-primary-color);
+        }
       }
       .elastic-shell {
         display: flex;
@@ -547,19 +557,24 @@ export class TimerBar extends LitElement {
         white-space: nowrap;
         --mdc-icon-size: 18px;
       }
-      .elastic-trigger:hover {
-        color: var(--primary-color);
+      @media (hover: hover) {
+        .elastic-trigger:hover {
+          color: var(--primary-color);
+        }
       }
       .elastic-trigger.shrunk {
         flex: 0 0 42px;
         padding: 8px;
-        background: var(--error-color, #db4437);
-        color: var(--text-primary-color);
+        background: none;
+        color: var(--error-color, #db4437);
         border-radius: 0;
+        --mdc-icon-size: 18px;
       }
-      .elastic-trigger.shrunk ha-icon {
-        transition: transform 0.3s ease;
-        transform: rotate(45deg);
+      @media (hover: hover) {
+        .elastic-trigger.shrunk:hover {
+          background: var(--error-color, #db4437);
+          color: var(--text-primary-color);
+        }
       }
       .elastic-trigger.shrunk span {
         display: none;
@@ -595,9 +610,11 @@ export class TimerBar extends LitElement {
         text-overflow: ellipsis;
         --mdc-icon-size: 16px;
       }
-      .elastic-opt:hover {
-        background: var(--primary-color);
-        color: var(--text-primary-color);
+      @media (hover: hover) {
+        .elastic-opt:hover {
+          background: var(--primary-color);
+          color: var(--text-primary-color);
+        }
       }
       .elastic-opt.unnamed {
         flex: 0 0 42px;

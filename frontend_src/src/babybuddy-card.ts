@@ -33,6 +33,9 @@ export class BabyBuddyCard extends LitElement {
   @state() private _sensorGroups: SensorGroupDef[] = [];
 
   private _cardConfigLoaded = false;
+  private _cardConfigLoading = false;
+  private _cardConfigAttempts = 0;
+  private static readonly _MAX_CONFIG_ATTEMPTS = 10;
   private _unsubRegistry?: (() => void) | undefined;
 
   public setConfig(config: BabyBuddyCardConfig): void {
@@ -167,14 +170,23 @@ export class BabyBuddyCard extends LitElement {
   }
 
   private async _loadCardConfig(): Promise<void> {
-    if (this._cardConfigLoaded) return;
-    this._cardConfigLoaded = true;
+    if (this._cardConfigLoaded || this._cardConfigLoading) return;
+    this._cardConfigLoading = true;
     try {
       const result = (await this.hass.callWS({
         type: "babybuddy/card_config",
-      })) as { version: string; sensor_groups: SensorGroupDef[] };
+      })) as {
+        version: string;
+        sensor_groups: SensorGroupDef[];
+        ready?: boolean;
+      };
 
       this._sensorGroups = result.sensor_groups ?? [];
+
+      // Backward compatible: if backend sends `ready`, use it;
+      // otherwise fall back to "non-empty groups" heuristic.
+      const isReady = result.ready ?? this._sensorGroups.length > 0;
+      if (isReady) this._cardConfigLoaded = true;
 
       const cardVersion = getVersion();
       if (result.version !== cardVersion) {
@@ -208,6 +220,12 @@ export class BabyBuddyCard extends LitElement {
       }
     } catch {
       // card_config endpoint not available
+    } finally {
+      this._cardConfigLoading = false;
+      this._cardConfigAttempts++;
+      if (this._cardConfigAttempts >= BabyBuddyCard._MAX_CONFIG_ATTEMPTS) {
+        this._cardConfigLoaded = true;
+      }
     }
   }
 
@@ -248,8 +266,9 @@ export class BabyBuddyCard extends LitElement {
 
   protected updated(changedProps: Map<string, unknown>): void {
     super.updated(changedProps);
-    if (changedProps.has("hass") && this.hass && !this._registryLoaded) {
-      this._loadEntityRegistry();
+    if (changedProps.has("hass") && this.hass) {
+      if (!this._registryLoaded) this._loadEntityRegistry();
+      if (!this._cardConfigLoaded) this._loadCardConfig();
     }
   }
 
@@ -462,7 +481,11 @@ export class BabyBuddyCard extends LitElement {
         background: var(--primary-color);
         color: var(--text-primary-color);
       }
-      .tab:not(.active):hover,
+      @media (hover: hover) {
+        .tab:not(.active):hover {
+          background: var(--secondary-background-color);
+        }
+      }
       .tab:not(.active):focus-visible {
         background: var(--secondary-background-color);
       }

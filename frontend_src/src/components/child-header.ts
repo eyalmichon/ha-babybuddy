@@ -43,8 +43,10 @@ export class ChildHeader extends LitElement {
         flex-shrink: 0;
         transition: transform 0.2s ease;
       }
-      .avatar:hover {
-        transform: scale(1.05);
+      @media (hover: hover) {
+        .avatar:hover {
+          transform: scale(1.05);
+        }
       }
       .placeholder {
         display: flex;
